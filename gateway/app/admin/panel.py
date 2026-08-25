@@ -7,6 +7,7 @@
 """The staff admin panel, mounted on its own route with its own login."""
 
 import logging
+import os
 
 from sqladmin import Admin, ModelView
 from sqladmin.authentication import AuthenticationBackend
@@ -196,6 +197,60 @@ VIEWS = (
 )
 
 
+_CARDS = (
+    ("Users", User, "user"),
+    ("Workspaces", Workspace, "workspace"),
+    ("Memberships", Membership, "membership"),
+    ("API keys", APIKey, "api-key"),
+    ("Shared links", SharedLink, "shared-link"),
+    ("Staff", AdminUser, "admin-user"),
+)
+
+
+def overview_cards(request):
+    """Counts for the models the signed-in role is allowed to see."""
+    role = request.session.get(ROLE_KEY)
+    base = str(request.base_url).rstrip("/")
+    cards = []
+    db = SessionLocal()
+    try:
+        for label, model, slug in _CARDS:
+            if not roles.can_see(role, model.__name__):
+                continue
+            cards.append({
+                "label": label,
+                "count": db.query(model).count(),
+                "url": "%s/admin/%s/list" % (base, slug),
+            })
+    except Exception as exc:
+        logging.warning("overview counts failed: %s", exc)
+    finally:
+        db.close()
+    return cards
+
+
+def overview_recent(request, limit=5):
+    """The newest accounts, for roles allowed to see users."""
+    if not roles.can_see(request.session.get(ROLE_KEY), "User"):
+        return []
+    db = SessionLocal()
+    try:
+        rows = db.query(User).order_by(User.created_at.desc()).limit(limit).all()
+        return [
+            {
+                "email": u.email,
+                "tier": u.tier,
+                "joined": u.created_at.strftime("%Y-%m-%d") if u.created_at else "",
+            }
+            for u in rows
+        ]
+    except Exception as exc:
+        logging.warning("overview recent failed: %s", exc)
+        return []
+    finally:
+        db.close()
+
+
 def mount_admin(app, secret_key, base_url="/admin"):
     """Attach the admin panel to a FastAPI app."""
     admin = Admin(
@@ -203,8 +258,11 @@ def mount_admin(app, secret_key, base_url="/admin"):
         engine=engine,
         base_url=base_url,
         title="Visdom Dev staff",
+        templates_dir=os.path.join(os.path.dirname(__file__), "templates"),
         authentication_backend=StaffAuth(secret_key=secret_key),
     )
+    admin.templates.env.globals["overview_cards"] = overview_cards
+    admin.templates.env.globals["overview_recent"] = overview_recent
     for view in VIEWS:
         admin.add_view(view)
     return admin
