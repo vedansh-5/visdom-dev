@@ -16,7 +16,17 @@ import uuid
 def utcnow() -> datetime.datetime:
     """Timezone-aware replacement for the deprecated datetime.utcnow()."""
     return datetime.datetime.now(datetime.timezone.utc)
-from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Index, Integer, String, func
+from sqlalchemy import (
+    Boolean,
+    Column,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    UniqueConstraint,
+    func,
+)
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 
@@ -108,6 +118,10 @@ class WorkspaceInvite(Base):
     role = Column(String, default="member")
     invited_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     created_at = Column(DateTime(timezone=True), default=utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "email", name="uq_workspace_invites_workspace_email"),
+    )
 
     # Relationships
     workspace = relationship("Workspace")
