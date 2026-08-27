@@ -8,13 +8,14 @@
 
 import logging
 import os
+import time
 
 from sqladmin import Admin, ModelView
 from sqladmin.authentication import AuthenticationBackend
 from starlette.requests import Request
 from starlette.responses import RedirectResponse
 
-from app.admin import roles
+from app.admin import activity, roles
 from app.database import SessionLocal, engine
 from app.models import (
     AdminUser,
@@ -107,13 +108,73 @@ class UserAdmin(RoleScopedView, model=User):
     column_details_exclude_list = [User.password_hash]
 
 
+def _workspace_activity(model, name):
+    """Render one workspace's live socket counts for the list view.
+
+    Reads the fan-out's answer rather than the database: "active" here means
+    someone is connected to the workspace right now, which only the visdom
+    instances know.
+    """
+    entry = activity.cached_activity().get(str(model.id))
+    if entry is None:
+        return "idle"
+    viewers, writers = entry.get("viewers", 0), entry.get("writers", 0)
+    if not viewers and not writers:
+        return "idle"
+    parts = []
+    if viewers:
+        parts.append(f"{viewers} reading")
+    if writers:
+        parts.append(f"{writers} writing")
+    return ", ".join(parts)
+
+
+def _workspace_last_active(model, name):
+    """Render how long ago the workspace was last written to."""
+    entry = activity.cached_activity().get(str(model.id))
+    last = entry.get("last_active_at") if entry else None
+    if not last:
+        return "unknown"
+    seconds = max(0, int(time.time() - last))
+    if seconds < 60:
+        return "just now"
+    if seconds < 3600:
+        return f"{seconds // 60}m ago"
+    if seconds < 86400:
+        return f"{seconds // 3600}h ago"
+    return f"{seconds // 86400}d ago"
+
+
+def _workspace_created(model, name):
+    """Workspaces created before the created_at column existed have no true age."""
+    return model.created_at.strftime("%Y-%m-%d %H:%M") if model.created_at else "unknown"
+
+
 class WorkspaceAdmin(RoleScopedView, model=Workspace):
     name = "Workspace"
     name_plural = "Workspaces"
     icon = "fa-solid fa-folder"
-    column_list = [Workspace.name, Workspace.slug, Workspace.created_by]
+    column_list = [
+        Workspace.name,
+        Workspace.slug,
+        Workspace.created_by,
+        Workspace.created_at,
+        "activity",
+        "last_active",
+    ]
+    column_labels = {
+        Workspace.created_at: "Created",
+        "activity": "Active now",
+        "last_active": "Last write",
+    }
+    column_formatters = {
+        Workspace.created_at: _workspace_created,
+        "activity": _workspace_activity,
+        "last_active": _workspace_last_active,
+    }
     column_searchable_list = [Workspace.name, Workspace.slug]
-    column_sortable_list = [Workspace.name, Workspace.slug]
+    column_sortable_list = [Workspace.name, Workspace.slug, Workspace.created_at]
+    column_default_sort = (Workspace.created_at, True)
 
 
 class MembershipAdmin(RoleScopedView, model=Membership):
