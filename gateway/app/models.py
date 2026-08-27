@@ -89,6 +89,7 @@ class Workspace(Base):
     name = Column(String, nullable=False)
     slug = Column(String, unique=True, nullable=False, index=True)  # e.g., 'nlp-labs'
     created_by = Column(UUID(as_uuid=True), ForeignKey("users.id"))
+    created_at = Column(DateTime(timezone=True), default=utcnow)
 
     # Relationships
     memberships = relationship("Membership", back_populates="workspace", cascade="all, delete-orphan")
