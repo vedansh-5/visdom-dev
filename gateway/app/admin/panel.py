@@ -16,6 +16,7 @@ from starlette.requests import Request
 from starlette.responses import RedirectResponse
 
 from app.admin import activity, roles
+from app.config import settings
 from app.database import SessionLocal, engine
 from app.models import (
     AdminUser,
@@ -31,6 +32,10 @@ from app.security import verify_password
 
 SESSION_KEY = "admin_user"
 ROLE_KEY = "admin_role"
+EMAIL_KEY = "admin_email"
+
+# Environment names that should make the panel visibly alarming to be looking at.
+DANGEROUS_ENVIRONMENTS = ("prod", "production", "live")
 
 
 class StaffAuth(AuthenticationBackend):
@@ -49,7 +54,9 @@ class StaffAuth(AuthenticationBackend):
                 return False
             admin.last_login_at = utcnow()
             db.commit()
-            request.session.update({SESSION_KEY: str(admin.id), ROLE_KEY: admin.role})
+            request.session.update(
+                {SESSION_KEY: str(admin.id), ROLE_KEY: admin.role, EMAIL_KEY: admin.email}
+            )
             logging.info("admin login for %s as %s", email, admin.role)
             return True
         finally:
@@ -108,6 +115,14 @@ class UserAdmin(RoleScopedView, model=User):
     column_details_exclude_list = [User.password_hash]
 
 
+def _email_of(user):
+    return user.email if user is not None else "unknown"
+
+
+def _slug_of(workspace):
+    return workspace.slug if workspace is not None else "unknown"
+
+
 def _workspace_activity(model, name):
     """Render one workspace's live socket counts for the list view.
 
@@ -157,17 +172,19 @@ class WorkspaceAdmin(RoleScopedView, model=Workspace):
     column_list = [
         Workspace.name,
         Workspace.slug,
-        Workspace.created_by,
+        Workspace.creator,
         Workspace.created_at,
         "activity",
         "last_active",
     ]
     column_labels = {
+        Workspace.creator: "Created by",
         Workspace.created_at: "Created",
         "activity": "Active now",
         "last_active": "Last write",
     }
     column_formatters = {
+        Workspace.creator: lambda m, a: _email_of(m.creator),
         Workspace.created_at: _workspace_created,
         "activity": _workspace_activity,
         "last_active": _workspace_last_active,
@@ -182,11 +199,16 @@ class MembershipAdmin(RoleScopedView, model=Membership):
     name_plural = "Memberships"
     icon = "fa-solid fa-users"
     column_list = [
-        Membership.workspace_id,
-        Membership.user_id,
+        Membership.workspace,
+        Membership.user,
         Membership.role,
         Membership.status,
     ]
+    column_labels = {Membership.workspace: "Workspace", Membership.user: "Member"}
+    column_formatters = {
+        Membership.workspace: lambda m, a: _slug_of(m.workspace),
+        Membership.user: lambda m, a: _email_of(m.user),
+    }
     column_sortable_list = [Membership.role, Membership.status]
 
 
@@ -199,10 +221,12 @@ class APIKeyAdmin(RoleScopedView, model=APIKey):
         APIKey.prefix,
         APIKey.scope,
         APIKey.is_active,
-        APIKey.user_id,
+        APIKey.owner,
         APIKey.created_at,
         APIKey.last_used_at,
     ]
+    column_labels = {APIKey.owner: "Owner", APIKey.last_used_at: "Last used"}
+    column_formatters = {APIKey.owner: lambda m, a: _email_of(m.owner)}
     column_details_exclude_list = [APIKey.hashed_key]
     column_sortable_list = [APIKey.created_at, APIKey.last_used_at]
 
@@ -213,10 +237,12 @@ class WorkspaceInviteAdmin(RoleScopedView, model=WorkspaceInvite):
     icon = "fa-solid fa-envelope"
     column_list = [
         WorkspaceInvite.email,
-        WorkspaceInvite.workspace_id,
+        WorkspaceInvite.workspace,
         WorkspaceInvite.role,
         WorkspaceInvite.created_at,
     ]
+    column_labels = {WorkspaceInvite.workspace: "Workspace"}
+    column_formatters = {WorkspaceInvite.workspace: lambda m, a: _slug_of(m.workspace)}
     column_searchable_list = [WorkspaceInvite.email]
 
 
@@ -225,11 +251,13 @@ class SharedLinkAdmin(RoleScopedView, model=SharedLink):
     name_plural = "Shared links"
     icon = "fa-solid fa-link"
     column_list = [
-        SharedLink.workspace_id,
+        SharedLink.workspace,
         SharedLink.role,
         SharedLink.invite_email,
         SharedLink.expires_at,
     ]
+    column_labels = {SharedLink.workspace: "Workspace", SharedLink.invite_email: "Issued to"}
+    column_formatters = {SharedLink.workspace: lambda m, a: _slug_of(m.workspace)}
     column_details_exclude_list = [SharedLink.password_hash]
 
 
@@ -312,6 +340,29 @@ def overview_recent(request, limit=5):
         db.close()
 
 
+def admin_environment():
+    """Which deployment this panel is attached to, for the banner.
+
+    Two panels that look identical are a hazard as soon as one of them is
+    production, and more so once the write actions land. Unset shows no banner
+    rather than a wrong one.
+    """
+    name = (settings.ADMIN_ENVIRONMENT or "").strip()
+    return {"name": name, "danger": name.lower() in DANGEROUS_ENVIRONMENTS}
+
+
+def admin_identity(request):
+    """Who is signed in and with what role.
+
+    The role decides what the panel will show at all, so the answer to "why can
+    I not see that" belongs on screen rather than being found by hitting a 403.
+    """
+    return {
+        "email": request.session.get(EMAIL_KEY),
+        "role": request.session.get(ROLE_KEY, ""),
+    }
+
+
 def mount_admin(app, secret_key, base_url="/admin"):
     """Attach the admin panel to a FastAPI app."""
     admin = Admin(
@@ -323,6 +374,8 @@ def mount_admin(app, secret_key, base_url="/admin"):
         authentication_backend=StaffAuth(secret_key=secret_key),
     )
     admin.templates.env.globals["overview_cards"] = overview_cards
+    admin.templates.env.globals["admin_environment"] = admin_environment
+    admin.templates.env.globals["admin_identity"] = admin_identity
     admin.templates.env.globals["overview_recent"] = overview_recent
     for view in VIEWS:
         admin.add_view(view)
