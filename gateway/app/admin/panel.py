@@ -108,6 +108,14 @@ class UserAdmin(RoleScopedView, model=User):
     column_details_exclude_list = [User.password_hash]
 
 
+def _email_of(user):
+    return user.email if user is not None else "unknown"
+
+
+def _slug_of(workspace):
+    return workspace.slug if workspace is not None else "unknown"
+
+
 def _workspace_activity(model, name):
     """Render one workspace's live socket counts for the list view.
 
@@ -157,17 +165,19 @@ class WorkspaceAdmin(RoleScopedView, model=Workspace):
     column_list = [
         Workspace.name,
         Workspace.slug,
-        Workspace.created_by,
+        Workspace.creator,
         Workspace.created_at,
         "activity",
         "last_active",
     ]
     column_labels = {
+        Workspace.creator: "Created by",
         Workspace.created_at: "Created",
         "activity": "Active now",
         "last_active": "Last write",
     }
     column_formatters = {
+        Workspace.creator: lambda m, a: _email_of(m.creator),
         Workspace.created_at: _workspace_created,
         "activity": _workspace_activity,
         "last_active": _workspace_last_active,
@@ -182,11 +192,16 @@ class MembershipAdmin(RoleScopedView, model=Membership):
     name_plural = "Memberships"
     icon = "fa-solid fa-users"
     column_list = [
-        Membership.workspace_id,
-        Membership.user_id,
+        Membership.workspace,
+        Membership.user,
         Membership.role,
         Membership.status,
     ]
+    column_labels = {Membership.workspace: "Workspace", Membership.user: "Member"}
+    column_formatters = {
+        Membership.workspace: lambda m, a: _slug_of(m.workspace),
+        Membership.user: lambda m, a: _email_of(m.user),
+    }
     column_sortable_list = [Membership.role, Membership.status]
 
 
@@ -199,10 +214,12 @@ class APIKeyAdmin(RoleScopedView, model=APIKey):
         APIKey.prefix,
         APIKey.scope,
         APIKey.is_active,
-        APIKey.user_id,
+        APIKey.owner,
         APIKey.created_at,
         APIKey.last_used_at,
     ]
+    column_labels = {APIKey.owner: "Owner", APIKey.last_used_at: "Last used"}
+    column_formatters = {APIKey.owner: lambda m, a: _email_of(m.owner)}
     column_details_exclude_list = [APIKey.hashed_key]
     column_sortable_list = [APIKey.created_at, APIKey.last_used_at]
 
@@ -213,10 +230,12 @@ class WorkspaceInviteAdmin(RoleScopedView, model=WorkspaceInvite):
     icon = "fa-solid fa-envelope"
     column_list = [
         WorkspaceInvite.email,
-        WorkspaceInvite.workspace_id,
+        WorkspaceInvite.workspace,
         WorkspaceInvite.role,
         WorkspaceInvite.created_at,
     ]
+    column_labels = {WorkspaceInvite.workspace: "Workspace"}
+    column_formatters = {WorkspaceInvite.workspace: lambda m, a: _slug_of(m.workspace)}
     column_searchable_list = [WorkspaceInvite.email]
 
 
@@ -225,11 +244,13 @@ class SharedLinkAdmin(RoleScopedView, model=SharedLink):
     name_plural = "Shared links"
     icon = "fa-solid fa-link"
     column_list = [
-        SharedLink.workspace_id,
+        SharedLink.workspace,
         SharedLink.role,
         SharedLink.invite_email,
         SharedLink.expires_at,
     ]
+    column_labels = {SharedLink.workspace: "Workspace", SharedLink.invite_email: "Issued to"}
+    column_formatters = {SharedLink.workspace: lambda m, a: _slug_of(m.workspace)}
     column_details_exclude_list = [SharedLink.password_hash]
 
 

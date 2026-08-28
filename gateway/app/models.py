@@ -92,6 +92,7 @@ class Workspace(Base):
     created_at = Column(DateTime(timezone=True), default=utcnow)
 
     # Relationships
+    creator = relationship("User", foreign_keys=[created_by])
     memberships = relationship("Membership", back_populates="workspace", cascade="all, delete-orphan")
     shared_links = relationship("SharedLink", back_populates="workspace", cascade="all, delete-orphan")
 
