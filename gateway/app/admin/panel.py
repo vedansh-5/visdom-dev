@@ -12,6 +12,7 @@ import time
 
 from sqladmin import Admin, ModelView
 from sqladmin.authentication import AuthenticationBackend
+from sqlalchemy.orm import joinedload
 from starlette.requests import Request
 from starlette.responses import RedirectResponse
 
@@ -21,6 +22,7 @@ from app.database import SessionLocal, engine
 from app.models import (
     AdminUser,
     APIKey,
+    APIKeyWorkspace,
     Membership,
     SharedLink,
     User,
@@ -160,6 +162,83 @@ def _workspace_last_active(model, name):
     return f"{seconds // 86400}d ago"
 
 
+def _member_lines(model, name):
+    """Members and their roles, so the page answers who is actually in here.
+
+    These read the database directly rather than walking relationships. sqladmin
+    closes its session before the formatters run, so a lazy load here raises
+    DetachedInstanceError, and eager loading through the view would still leave
+    the second hop (a membership's user) detached.
+    """
+    db = SessionLocal()
+    try:
+        rows = (
+            db.query(Membership)
+            .options(joinedload(Membership.user))
+            .filter(Membership.workspace_id == model.id)
+            .all()
+        )
+        if not rows:
+            return "no members"
+        rows.sort(key=lambda m: (m.role, _email_of(m.user)))
+        return ", ".join(
+            f"{_email_of(m.user)} ({m.role}"
+            f"{'' if m.status == 'active' else ', ' + m.status})"
+            for m in rows
+        )
+    finally:
+        db.close()
+
+
+def _invite_lines(model, name):
+    db = SessionLocal()
+    try:
+        rows = (
+            db.query(WorkspaceInvite)
+            .filter(WorkspaceInvite.workspace_id == model.id)
+            .all()
+        )
+        return ", ".join(f"{i.email} ({i.role})" for i in rows) or "none"
+    finally:
+        db.close()
+
+
+def _key_lines(model, name):
+    """Only keys bound to this workspace.
+
+    An org scoped key works everywhere, so listing those would name every key
+    its owner holds and say nothing about this workspace in particular.
+    """
+    db = SessionLocal()
+    try:
+        rows = (
+            db.query(APIKey)
+            .join(APIKeyWorkspace, APIKeyWorkspace.api_key_id == APIKey.id)
+            .options(joinedload(APIKey.owner))
+            .filter(APIKeyWorkspace.workspace_id == model.id)
+            .all()
+        )
+        return ", ".join(f"{k.name} ({_email_of(k.owner)})" for k in rows) or "none"
+    finally:
+        db.close()
+
+
+def _link_lines(model, name):
+    db = SessionLocal()
+    try:
+        rows = db.query(SharedLink).filter(SharedLink.workspace_id == model.id).all()
+        return (
+            ", ".join(
+                f"{link.role}"
+                f"{' for ' + link.invite_email if link.invite_email else ''}"
+                for link in rows
+            )
+            or "none"
+        )
+    finally:
+        db.close()
+
+
 def _workspace_size(model, name):
     """Render how much disk a workspace is using.
 
@@ -215,6 +294,41 @@ class WorkspaceAdmin(RoleScopedView, model=Workspace):
     column_searchable_list = [Workspace.name, Workspace.slug]
     column_sortable_list = [Workspace.name, Workspace.slug, Workspace.created_at]
     column_default_sort = (Workspace.created_at, True)
+    column_details_list = [
+        Workspace.name,
+        Workspace.slug,
+        Workspace.creator,
+        Workspace.created_at,
+        "activity",
+        "last_active",
+        "size",
+        "members",
+        "invites",
+        "keys",
+        "links",
+    ]
+    column_labels_detail = {
+        Workspace.creator: "Created by",
+        Workspace.created_at: "Created",
+        "activity": "Active now",
+        "last_active": "Last write",
+        "size": "On disk",
+        "members": "Members",
+        "invites": "Pending email invites",
+        "keys": "Keys bound to this workspace",
+        "links": "Shared links",
+    }
+    column_formatters_detail = {
+        Workspace.creator: lambda m, a: _email_of(m.creator),
+        Workspace.created_at: _workspace_created,
+        "activity": _workspace_activity,
+        "last_active": _workspace_last_active,
+        "size": _workspace_size,
+        "members": _member_lines,
+        "invites": _invite_lines,
+        "keys": _key_lines,
+        "links": _link_lines,
+    }
 
 
 class MembershipAdmin(RoleScopedView, model=Membership):
