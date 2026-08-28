@@ -16,6 +16,7 @@ from starlette.requests import Request
 from starlette.responses import RedirectResponse
 
 from app.admin import activity, roles
+from app.config import settings
 from app.database import SessionLocal, engine
 from app.models import (
     AdminUser,
@@ -31,6 +32,10 @@ from app.security import verify_password
 
 SESSION_KEY = "admin_user"
 ROLE_KEY = "admin_role"
+EMAIL_KEY = "admin_email"
+
+# Environment names that should make the panel visibly alarming to be looking at.
+DANGEROUS_ENVIRONMENTS = ("prod", "production", "live")
 
 
 class StaffAuth(AuthenticationBackend):
@@ -49,7 +54,9 @@ class StaffAuth(AuthenticationBackend):
                 return False
             admin.last_login_at = utcnow()
             db.commit()
-            request.session.update({SESSION_KEY: str(admin.id), ROLE_KEY: admin.role})
+            request.session.update(
+                {SESSION_KEY: str(admin.id), ROLE_KEY: admin.role, EMAIL_KEY: admin.email}
+            )
             logging.info("admin login for %s as %s", email, admin.role)
             return True
         finally:
@@ -333,6 +340,29 @@ def overview_recent(request, limit=5):
         db.close()
 
 
+def admin_environment():
+    """Which deployment this panel is attached to, for the banner.
+
+    Two panels that look identical are a hazard as soon as one of them is
+    production, and more so once the write actions land. Unset shows no banner
+    rather than a wrong one.
+    """
+    name = (settings.ADMIN_ENVIRONMENT or "").strip()
+    return {"name": name, "danger": name.lower() in DANGEROUS_ENVIRONMENTS}
+
+
+def admin_identity(request):
+    """Who is signed in and with what role.
+
+    The role decides what the panel will show at all, so the answer to "why can
+    I not see that" belongs on screen rather than being found by hitting a 403.
+    """
+    return {
+        "email": request.session.get(EMAIL_KEY),
+        "role": request.session.get(ROLE_KEY, ""),
+    }
+
+
 def mount_admin(app, secret_key, base_url="/admin"):
     """Attach the admin panel to a FastAPI app."""
     admin = Admin(
@@ -344,6 +374,8 @@ def mount_admin(app, secret_key, base_url="/admin"):
         authentication_backend=StaffAuth(secret_key=secret_key),
     )
     admin.templates.env.globals["overview_cards"] = overview_cards
+    admin.templates.env.globals["admin_environment"] = admin_environment
+    admin.templates.env.globals["admin_identity"] = admin_identity
     admin.templates.env.globals["overview_recent"] = overview_recent
     for view in VIEWS:
         admin.add_view(view)
