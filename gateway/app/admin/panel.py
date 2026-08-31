@@ -160,6 +160,26 @@ def _workspace_last_active(model, name):
     return f"{seconds // 86400}d ago"
 
 
+def _workspace_size(model, name):
+    """Render how much disk a workspace is using.
+
+    Worth showing because nothing limits it. Image plots are base64 and orders
+    of magnitude heavier than line plots, so one account can fill the volume
+    without doing anything obviously wrong, and this is the only place that
+    would show it before the disk filled.
+    """
+    entry = activity.cached_activity().get(str(model.id))
+    size = entry.get("bytes") if entry else None
+    if size is None:
+        return "unknown"
+    if size < 1024:
+        return f"{size} B"
+    for unit in ("KB", "MB", "GB"):
+        size /= 1024.0
+        if size < 1024 or unit == "GB":
+            return f"{size:.1f} {unit}"
+
+
 def _workspace_created(model, name):
     """Workspaces created before the created_at column existed have no true age."""
     return model.created_at.strftime("%Y-%m-%d %H:%M") if model.created_at else "unknown"
@@ -176,18 +196,21 @@ class WorkspaceAdmin(RoleScopedView, model=Workspace):
         Workspace.created_at,
         "activity",
         "last_active",
+        "size",
     ]
     column_labels = {
         Workspace.creator: "Created by",
         Workspace.created_at: "Created",
         "activity": "Active now",
         "last_active": "Last write",
+        "size": "On disk",
     }
     column_formatters = {
         Workspace.creator: lambda m, a: _email_of(m.creator),
         Workspace.created_at: _workspace_created,
         "activity": _workspace_activity,
         "last_active": _workspace_last_active,
+        "size": _workspace_size,
     }
     column_searchable_list = [Workspace.name, Workspace.slug]
     column_sortable_list = [Workspace.name, Workspace.slug, Workspace.created_at]
