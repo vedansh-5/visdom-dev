@@ -17,6 +17,7 @@ def utcnow() -> datetime.datetime:
     """Timezone-aware replacement for the deprecated datetime.utcnow()."""
     return datetime.datetime.now(datetime.timezone.utc)
 from sqlalchemy import (
+    JSON,
     Boolean,
     Column,
     DateTime,
@@ -141,6 +142,26 @@ class SharedLink(Base):
 
     # Relationships
     workspace = relationship("Workspace", back_populates="shared_links")
+
+
+class AdminAction(Base):
+    """One change a staff account made through the admin panel.
+
+    Kept separate from the row it describes so that suspending an account leaves
+    a trail even after that account is gone. The actor's email is copied in
+    rather than only referenced, for the same reason.
+    """
+
+    __tablename__ = "admin_actions"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    admin_id = Column(String, nullable=True)
+    admin_email = Column(String, nullable=True)
+    action = Column(String, nullable=False)
+    model = Column(String, nullable=False, index=True)
+    row_id = Column(String, nullable=True, index=True)
+    changes = Column(JSON, nullable=True)
+    created_at = Column(DateTime(timezone=True), default=utcnow, index=True)
 
 
 class AdminUser(Base):
