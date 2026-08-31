@@ -10,13 +10,13 @@ import logging
 import os
 import time
 
-from sqladmin import Admin, ModelView
+from sqladmin import Admin, BaseView, ModelView, expose
 from sqladmin.authentication import AuthenticationBackend
 from sqlalchemy.orm import joinedload
 from starlette.requests import Request
-from starlette.responses import RedirectResponse
+from starlette.responses import RedirectResponse, Response
 
-from app.admin import activity, roles
+from app.admin import activity, janitor, roles
 from app.config import settings
 from app.database import SessionLocal, engine
 from app.models import (
@@ -412,6 +412,46 @@ class AdminUserAdmin(RoleScopedView, model=AdminUser):
     column_details_exclude_list = [AdminUser.password_hash]
 
 
+class JanitorView(BaseView):
+    """Leftovers worth a look, on one page.
+
+    Support and above only: it reads across every workspace at once, which is a
+    wider view of other people's data than a viewer is given anywhere else.
+    """
+
+    name = "Cleanup"
+    icon = "fa-solid fa-broom"
+    template = "sqladmin/janitor.html"
+
+    def is_visible(self, request: Request) -> bool:
+        return self._allowed(request)
+
+    def is_accessible(self, request: Request) -> bool:
+        return self._allowed(request)
+
+    @staticmethod
+    def _allowed(request: Request) -> bool:
+        return request.session.get(ROLE_KEY) in (roles.SUPPORT, roles.SUPERADMIN)
+
+    @expose("/janitor", methods=["GET"])
+    async def page(self, request: Request):
+        # sqladmin does not apply is_accessible to an exposed route, only to the
+        # menu entry, so without this a viewer who typed the URL would be served
+        # the page. The ModelViews are gated by sqladmin itself; this one is not.
+        if not self._allowed(request):
+            return Response("Forbidden", status_code=403)
+        return await self.templates.TemplateResponse(request, self.template)
+
+
+def janitor_findings():
+    """The cleanup sections, opened and closed around one render."""
+    db = SessionLocal()
+    try:
+        return janitor.findings(db)
+    finally:
+        db.close()
+
+
 VIEWS = (
     UserAdmin,
     WorkspaceAdmin,
@@ -513,7 +553,9 @@ def mount_admin(app, secret_key, base_url="/admin"):
     admin.templates.env.globals["overview_cards"] = overview_cards
     admin.templates.env.globals["admin_environment"] = admin_environment
     admin.templates.env.globals["admin_identity"] = admin_identity
+    admin.templates.env.globals["janitor_findings"] = janitor_findings
     admin.templates.env.globals["overview_recent"] = overview_recent
     for view in VIEWS:
         admin.add_view(view)
+    admin.add_view(JanitorView)
     return admin
