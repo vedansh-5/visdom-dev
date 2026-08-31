@@ -13,13 +13,16 @@ import time
 from sqladmin import Admin, BaseView, ModelView, expose
 from sqladmin.authentication import AuthenticationBackend
 from sqlalchemy.orm import joinedload
+from starlette.exceptions import HTTPException
 from starlette.requests import Request
 from starlette.responses import RedirectResponse, Response
 
 from app.admin import activity, janitor, roles
+from app.admin.audit import StaffAuditBackend
 from app.config import settings
 from app.database import SessionLocal, engine
 from app.models import (
+    AdminAction,
     AdminUser,
     APIKey,
     APIKeyWorkspace,
@@ -100,7 +103,51 @@ class RoleScopedView(ModelView):
         return roles.can_see(request.session.get(ROLE_KEY), self.model.__name__)
 
 
-class UserAdmin(RoleScopedView, model=User):
+class ChangeableView(RoleScopedView):
+    """A view whose rows a sufficiently privileged role may also change.
+
+    Nothing here can be created or deleted. A staff member stopping an account
+    or a key is undoing something reversible, and a deleted row takes its own
+    audit trail with it.
+    """
+
+    can_edit = True
+
+    async def check_can_edit(self, request: Request, model) -> bool:
+        """The real gate. `can_edit` is a class attribute, so it cannot vary by
+        role; sqladmin calls this per request, which is what makes the hidden
+        button and the typed URL agree."""
+        return roles.can_change(request.session.get(ROLE_KEY), self.model.__name__)
+
+    async def on_model_change(
+        self, data: dict, model, is_created: bool, request: Request
+    ) -> None:
+        """Drop any field this role is not allowed to set.
+
+        The form is the same for every role that can edit at all, because
+        sqladmin builds it without knowing the request. So the field level rule
+        is applied to what was submitted instead, which also covers a request
+        that never came from the form.
+        """
+        allowed = roles.editable_fields(
+            request.session.get(ROLE_KEY), self.model.__name__
+        )
+        refused = [
+            key
+            for key, value in data.items()
+            if key not in allowed and value != getattr(model, key, None)
+        ]
+        if refused:
+            raise HTTPException(
+                status_code=403,
+                detail=f"Your role cannot change: {', '.join(sorted(refused))}.",
+            )
+        for key in list(data):
+            if key not in allowed:
+                data.pop(key)
+
+
+class UserAdmin(ChangeableView, model=User):
     name = "User"
     name_plural = "Users"
     icon = "fa-solid fa-user"
@@ -115,6 +162,7 @@ class UserAdmin(RoleScopedView, model=User):
     column_sortable_list = [User.email, User.tier, User.created_at]
     column_default_sort = (User.created_at, True)
     column_details_exclude_list = [User.password_hash]
+    form_columns = [User.is_active, User.tier]
 
 
 def _email_of(user):
@@ -349,7 +397,7 @@ class MembershipAdmin(RoleScopedView, model=Membership):
     column_sortable_list = [Membership.role, Membership.status]
 
 
-class APIKeyAdmin(RoleScopedView, model=APIKey):
+class APIKeyAdmin(ChangeableView, model=APIKey):
     name = "API key"
     name_plural = "API keys"
     icon = "fa-solid fa-key"
@@ -366,6 +414,7 @@ class APIKeyAdmin(RoleScopedView, model=APIKey):
     column_formatters = {APIKey.owner: lambda m, a: _email_of(m.owner)}
     column_details_exclude_list = [APIKey.hashed_key]
     column_sortable_list = [APIKey.created_at, APIKey.last_used_at]
+    form_columns = [APIKey.is_active]
 
 
 class WorkspaceInviteAdmin(RoleScopedView, model=WorkspaceInvite):
@@ -452,6 +501,37 @@ def janitor_findings():
         db.close()
 
 
+class AdminActionAdmin(RoleScopedView, model=AdminAction):
+    """What staff have changed, newest first.
+
+    Read only, and deliberately not editable by anyone: a trail that can be
+    rewritten by the people it describes is not a trail.
+    """
+
+    name = "Audit trail"
+    name_plural = "Audit trail"
+    icon = "fa-solid fa-clipboard-list"
+    column_list = [
+        AdminAction.created_at,
+        AdminAction.admin_email,
+        AdminAction.action,
+        AdminAction.model,
+        AdminAction.row_id,
+        AdminAction.changes,
+    ]
+    column_labels = {
+        AdminAction.created_at: "When",
+        AdminAction.admin_email: "Who",
+        AdminAction.action: "Did",
+        AdminAction.model: "To",
+        AdminAction.row_id: "Row",
+        AdminAction.changes: "Set",
+    }
+    column_sortable_list = [AdminAction.created_at, AdminAction.admin_email]
+    column_default_sort = (AdminAction.created_at, True)
+    column_searchable_list = [AdminAction.admin_email, AdminAction.model]
+
+
 VIEWS = (
     UserAdmin,
     WorkspaceAdmin,
@@ -460,6 +540,7 @@ VIEWS = (
     WorkspaceInviteAdmin,
     SharedLinkAdmin,
     AdminUserAdmin,
+    AdminActionAdmin,
 )
 
 
@@ -549,6 +630,7 @@ def mount_admin(app, secret_key, base_url="/admin"):
         title="Visdom Dev staff",
         templates_dir=os.path.join(os.path.dirname(__file__), "templates"),
         authentication_backend=StaffAuth(secret_key=secret_key),
+        audit_backend=StaffAuditBackend(SessionLocal, SESSION_KEY, EMAIL_KEY),
     )
     admin.templates.env.globals["overview_cards"] = overview_cards
     admin.templates.env.globals["admin_environment"] = admin_environment
