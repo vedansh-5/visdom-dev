@@ -48,9 +48,24 @@ def _get_membership(db: Session, workspace_id: uuid.UUID, user_id: uuid.UUID) ->
 
 
 def _require_member(db: Session, workspace_id: uuid.UUID, user_id: uuid.UUID) -> Membership:
-    """Ensures the user is an active member of the workspace, else 404."""
+    """Ensures the user is an active member of a workspace that is not in the
+    trash, else 404.
+
+    A trashed workspace answers as missing rather than as forbidden. From a
+    member's side it is gone, which is what it was before the trash existed and
+    what deleting it was meant to do; only staff can see it still exists and put
+    it back. Checking here rather than at each route is what stops the trash
+    leaking, since every workspace route resolves through this.
+    """
     membership = _get_membership(db, workspace_id, user_id)
     if not membership or membership.status != "active":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workspace not found.")
+    trashed = (
+        db.query(Workspace.trashed_at)
+        .filter(Workspace.id == workspace_id)
+        .scalar()
+    )
+    if trashed is not None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workspace not found.")
     return membership
 
@@ -166,12 +181,21 @@ def delete_workspace(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Deletes a workspace and its memberships/shared links. Admins only."""
+    """Moves a workspace to the trash. Admins only.
+
+    The rows stay, and so does everything on the visdom volume, so an
+    administrator can put the workspace back. Deleting outright took the
+    memberships and shared links with it and left no record that it had ever
+    existed, which is the one mistake here nobody could undo.
+
+    Deleting one already in the trash answers 404, the same as deleting one that
+    had been removed outright, because ``_require_admin`` cannot see it either.
+    """
     _require_admin(db, workspace_id, current_user.id)
     workspace = db.query(Workspace).filter(Workspace.id == workspace_id).first()
     if not workspace:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workspace not found.")
-    db.delete(workspace)
+    workspace.trashed_at = utcnow()
     db.commit()
 
 

@@ -192,3 +192,83 @@ def test_a_trashed_workspace_is_not_also_reported_as_orphaned(client, make_user,
 
     _set(db_session, workspace, trashed_at=utcnow())
     assert workspace["slug"] not in {ws.slug for ws in janitor.empty_workspaces(db_session)}
+
+
+def test_deleting_a_workspace_puts_it_in_the_trash(client, make_user, make_workspace, db_session):
+    """The rows survive, so an administrator can put it back."""
+    user = make_user()
+    workspace = make_workspace(user)
+
+    removed = client.delete(f"{WORKSPACES}/{workspace['id']}", headers=user["headers"])
+    assert removed.status_code == 204
+
+    row = (
+        db_session.query(Workspace)
+        .filter(Workspace.id == uuid.UUID(workspace["id"]))
+        .one()
+    )
+    assert row.trashed_at is not None
+
+
+def test_a_trashed_workspace_keeps_its_memberships(client, make_user, make_workspace, add_member, db_session):
+    """Deleting outright took these with it, which is what made it unrecoverable."""
+    from app.models import Membership
+
+    owner = make_user()
+    member = make_user()
+    workspace = make_workspace(owner)
+    add_member(owner, workspace, member)
+
+    assert client.delete(f"{WORKSPACES}/{workspace['id']}", headers=owner["headers"]).status_code == 204
+
+    kept = (
+        db_session.query(Membership)
+        .filter(Membership.workspace_id == uuid.UUID(workspace["id"]))
+        .count()
+    )
+    assert kept == 2
+
+
+def test_a_trashed_workspace_is_gone_from_every_member_route(client, make_user, make_workspace, add_member):
+    """Invisible, not merely absent from the listing, or the trash would leak."""
+    owner = make_user()
+    member = make_user()
+    workspace = make_workspace(owner)
+    add_member(owner, workspace, member)
+
+    assert client.delete(f"{WORKSPACES}/{workspace['id']}", headers=owner["headers"]).status_code == 204
+
+    for user in (owner, member):
+        assert client.get(WORKSPACES, headers=user["headers"]).json() == []
+        members = client.get(f"{WORKSPACES}/{workspace['id']}/members", headers=user["headers"])
+        assert members.status_code == 404
+
+
+def test_deleting_a_trashed_workspace_answers_as_missing(client, make_user, make_workspace):
+    """The same answer deleting an already-deleted one used to give."""
+    user = make_user()
+    workspace = make_workspace(user)
+
+    assert client.delete(f"{WORKSPACES}/{workspace['id']}", headers=user["headers"]).status_code == 204
+    again = client.delete(f"{WORKSPACES}/{workspace['id']}", headers=user["headers"])
+    assert again.status_code == 404
+
+
+def test_restoring_gives_the_workspace_back_to_its_members(client, make_user, make_workspace, add_member, db_session):
+    """What a superadmin clearing trashed_at in the console amounts to."""
+    owner = make_user()
+    member = make_user()
+    workspace = make_workspace(owner)
+    add_member(owner, workspace, member)
+
+    assert client.delete(f"{WORKSPACES}/{workspace['id']}", headers=owner["headers"]).status_code == 204
+    _set(db_session, workspace, trashed_at=None)
+
+    for user in (owner, member):
+        listed = client.get(WORKSPACES, headers=user["headers"])
+        assert [ws["id"] for ws in listed.json()] == [workspace["id"]]
+
+    resolved = client.post(
+        RESOLVE_SESSION, json={"workspace_slug": workspace["slug"]}, headers=owner["headers"]
+    )
+    assert resolved.status_code == 200
