@@ -198,6 +198,15 @@ server {
         if ($http_x_api_key) {
             return 401 '{"detail":"Invalid or expired API key"}';
         }
+        # A websocket cannot follow a redirect. The browser reports the
+        # handshake as an opaque failure with no close code, which the client
+        # reads as a transient fault and retries with backoff, so an expired
+        # session becomes a dashboard that hangs instead of one that asks the
+        # viewer to log in again. A status the client can act on is the whole
+        # difference.
+        if ($http_upgrade) {
+            return 401 '{"detail":"Session expired or missing"}';
+        }
         return 302 /login?next=$request_uri;
     }
 }
