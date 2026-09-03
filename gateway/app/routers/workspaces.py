@@ -150,7 +150,11 @@ def list_workspaces(
     rows = (
         db.query(Workspace, Membership)
         .join(Membership, Membership.workspace_id == Workspace.id)
-        .filter(Membership.user_id == current_user.id, Membership.status == "active")
+        .filter(
+            Membership.user_id == current_user.id,
+            Membership.status == "active",
+            Workspace.trashed_at.is_(None),
+        )
         .all()
     )
     return [_to_my_workspace_response(ws, membership) for ws, membership in rows]

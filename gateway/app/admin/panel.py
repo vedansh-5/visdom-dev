@@ -9,6 +9,7 @@
 import logging
 import os
 import time
+from datetime import datetime, timezone
 
 from sqladmin import Admin, BaseView, ModelView, expose
 from sqladmin.authentication import AuthenticationBackend
@@ -312,7 +313,31 @@ def _workspace_created(model, name):
     return model.created_at.strftime("%Y-%m-%d %H:%M") if model.created_at else "unknown"
 
 
-class WorkspaceAdmin(RoleScopedView, model=Workspace):
+def _days_since(moment):
+    """Whole days between then and now, or None when there is no timestamp."""
+    if moment is None:
+        return None
+    now = datetime.now(timezone.utc)
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=timezone.utc)
+    return max(0, (now - moment).days)
+
+
+def _workspace_standing(model, name):
+    """Whether the workspace is usable, and why not when it is not.
+
+    Trash is reported first. A trashed workspace is refused whatever its
+    suspension flag says, so leading with the suspension would name a reason
+    that is not the operative one.
+    """
+    days = _days_since(model.trashed_at)
+    if days is not None:
+        overdue = " (due for purge)" if days >= janitor.TRASH_DAYS else ""
+        return f"in trash {days}d{overdue}"
+    return "active" if model.is_active else "suspended"
+
+
+class WorkspaceAdmin(ChangeableView, model=Workspace):
     name = "Workspace"
     name_plural = "Workspaces"
     icon = "fa-solid fa-folder"
@@ -321,6 +346,7 @@ class WorkspaceAdmin(RoleScopedView, model=Workspace):
         Workspace.slug,
         Workspace.creator,
         Workspace.created_at,
+        "standing",
         "activity",
         "last_active",
         "size",
@@ -328,6 +354,7 @@ class WorkspaceAdmin(RoleScopedView, model=Workspace):
     column_labels = {
         Workspace.creator: "Created by",
         Workspace.created_at: "Created",
+        "standing": "Standing",
         "activity": "Active now",
         "last_active": "Last write",
         "size": "On disk",
@@ -335,10 +362,12 @@ class WorkspaceAdmin(RoleScopedView, model=Workspace):
     column_formatters = {
         Workspace.creator: lambda m, a: _email_of(m.creator),
         Workspace.created_at: _workspace_created,
+        "standing": _workspace_standing,
         "activity": _workspace_activity,
         "last_active": _workspace_last_active,
         "size": _workspace_size,
     }
+    form_columns = [Workspace.is_active, Workspace.trashed_at]
     column_searchable_list = [Workspace.name, Workspace.slug]
     column_sortable_list = [Workspace.name, Workspace.slug, Workspace.created_at]
     column_default_sort = (Workspace.created_at, True)
@@ -347,6 +376,7 @@ class WorkspaceAdmin(RoleScopedView, model=Workspace):
         Workspace.slug,
         Workspace.creator,
         Workspace.created_at,
+        "standing",
         "activity",
         "last_active",
         "size",
@@ -358,6 +388,7 @@ class WorkspaceAdmin(RoleScopedView, model=Workspace):
     column_labels_detail = {
         Workspace.creator: "Created by",
         Workspace.created_at: "Created",
+        "standing": "Standing",
         "activity": "Active now",
         "last_active": "Last write",
         "size": "On disk",
@@ -369,6 +400,7 @@ class WorkspaceAdmin(RoleScopedView, model=Workspace):
     column_formatters_detail = {
         Workspace.creator: lambda m, a: _email_of(m.creator),
         Workspace.created_at: _workspace_created,
+        "standing": _workspace_standing,
         "activity": _workspace_activity,
         "last_active": _workspace_last_active,
         "size": _workspace_size,
