@@ -5,7 +5,7 @@ from app.admin import janitor, roles
 from app.models import Workspace
 
 WORKSPACES = "/api/v1/workspaces"
-KEYS = "/api/v1/api-keys"
+KEYS = "/api/v1/keys"
 RESOLVE = "/api/v1/visdom/resolve"
 RESOLVE_SESSION = "/api/v1/visdom/resolve-session"
 
