@@ -272,3 +272,88 @@ def test_restoring_gives_the_workspace_back_to_its_members(client, make_user, ma
         RESOLVE_SESSION, json={"workspace_slug": workspace["slug"]}, headers=owner["headers"]
     )
     assert resolved.status_code == 200
+
+
+def _trash(db_session, workspace, days):
+    import datetime
+
+    _set(
+        db_session,
+        workspace,
+        trashed_at=datetime.datetime.now(datetime.timezone.utc)
+        - datetime.timedelta(days=days),
+    )
+
+
+def test_only_workspaces_past_the_waiting_period_are_purgeable(client, make_user, make_workspace, db_session):
+    user = make_user()
+    fresh = make_workspace(user)
+    due = make_workspace(user)
+
+    _trash(db_session, fresh, 2)
+    _trash(db_session, due, janitor.TRASH_DAYS + 1)
+
+    assert [ws.slug for ws, _ in janitor.purgeable(db_session)] == [due["slug"]]
+
+
+def test_purging_removes_the_workspace_and_its_memberships(client, make_user, make_workspace, add_member, db_session):
+    from app.models import Membership
+
+    owner = make_user()
+    member = make_user()
+    workspace = make_workspace(owner)
+    add_member(owner, workspace, member)
+    _trash(db_session, workspace, janitor.TRASH_DAYS + 1)
+
+    slug = janitor.purge(db_session, uuid.UUID(workspace["id"]))
+
+    assert slug == workspace["slug"]
+    assert (
+        db_session.query(Workspace)
+        .filter(Workspace.id == uuid.UUID(workspace["id"]))
+        .first()
+        is None
+    )
+    assert (
+        db_session.query(Membership)
+        .filter(Membership.workspace_id == uuid.UUID(workspace["id"]))
+        .count()
+        == 0
+    )
+
+
+def test_purging_refuses_a_workspace_that_is_not_due(client, make_user, make_workspace, db_session):
+    """The waiting period is checked here too, not only by the page offering
+    the button, since the route is reachable without it."""
+    import pytest
+
+    user = make_user()
+    workspace = make_workspace(user)
+    _trash(db_session, workspace, 3)
+
+    with pytest.raises(ValueError, match="not due"):
+        janitor.purge(db_session, uuid.UUID(workspace["id"]))
+
+    assert (
+        db_session.query(Workspace)
+        .filter(Workspace.id == uuid.UUID(workspace["id"]))
+        .first()
+        is not None
+    )
+
+
+def test_purging_refuses_a_workspace_that_is_not_in_the_trash(client, make_user, make_workspace, db_session):
+    import pytest
+
+    user = make_user()
+    workspace = make_workspace(user)
+
+    with pytest.raises(ValueError, match="not in the trash"):
+        janitor.purge(db_session, uuid.UUID(workspace["id"]))
+
+
+def test_purging_something_already_gone_says_so(db_session):
+    import pytest
+
+    with pytest.raises(LookupError):
+        janitor.purge(db_session, uuid.uuid4())

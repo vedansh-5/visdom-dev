@@ -9,7 +9,9 @@
 import logging
 import os
 import time
+import uuid
 from datetime import datetime, timezone
+from urllib.parse import urlencode
 
 from sqladmin import Admin, BaseView, ModelView, expose
 from sqladmin.authentication import AuthenticationBackend
@@ -514,14 +516,85 @@ class JanitorView(BaseView):
     def _allowed(request: Request) -> bool:
         return request.session.get(ROLE_KEY) in (roles.SUPPORT, roles.SUPERADMIN)
 
-    @expose("/janitor", methods=["GET"])
+    # One exposed route, taking both methods, rather than a second route for
+    # the purge. sqladmin names a custom view's route after the exposed
+    # function and the sidebar links to that name, so a second exposed method
+    # would rename the view out from under its own menu entry.
+    @expose("/janitor", methods=["GET", "POST"])
     async def page(self, request: Request):
         # sqladmin does not apply is_accessible to an exposed route, only to the
         # menu entry, so without this a viewer who typed the URL would be served
         # the page. The ModelViews are gated by sqladmin itself; this one is not.
         if not self._allowed(request):
             return Response("Forbidden", status_code=403)
-        return await self.templates.TemplateResponse(request, self.template)
+
+        if request.method == "POST":
+            return RedirectResponse(
+                request.url.replace(query=urlencode({"notice": await self._purge(request)})),
+                status_code=303,
+            )
+
+        return await self.templates.TemplateResponse(
+            request,
+            self.template,
+            {
+                "notice": request.query_params.get("notice"),
+                "may_purge": request.session.get(ROLE_KEY) == roles.SUPERADMIN,
+            },
+        )
+
+    async def _purge(self, request: Request):
+        """Remove one workspace that has served its time in the trash.
+
+        The only thing in the panel that destroys a row, so it is the narrowest
+        it can be: a superadmin, one workspace named by id, and only once the
+        waiting period has passed. That period is checked again in
+        ``janitor.purge`` rather than trusted from the page offering the button,
+        because this route is reachable without it.
+        """
+        if request.session.get(ROLE_KEY) != roles.SUPERADMIN:
+            return "Only a superadmin can purge a workspace."
+
+        form = await request.form()
+        raw_id = str(form.get("workspace_id", ""))
+        db = SessionLocal()
+        try:
+            slug = janitor.purge(db, uuid.UUID(raw_id))
+        except (ValueError, LookupError) as exc:
+            return str(exc) or "That workspace could not be purged."
+        finally:
+            db.close()
+        _record_purge(request, raw_id, slug)
+        return f"Purged {slug}."
+
+
+def _record_purge(request, workspace_id, slug):
+    """Write the audit entry for a purge.
+
+    sqladmin emits its own entry for anything it changes through a form, but
+    this route is not one, so the trail is written here or a purge would be the
+    one change in the panel that leaves no record. A failure to log is not
+    allowed to fail the request: the row is already gone, and losing the record
+    is better than reporting an error for work that was done.
+    """
+    db = SessionLocal()
+    try:
+        db.add(
+            AdminAction(
+                admin_id=request.session.get(SESSION_KEY),
+                admin_email=request.session.get(EMAIL_KEY),
+                action="delete",
+                model="Workspace",
+                row_id=str(workspace_id),
+                changes={"purged_from_trash": slug},
+            )
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
+        logging.exception("could not record a purge in the audit trail")
+    finally:
+        db.close()
 
 
 def janitor_findings():

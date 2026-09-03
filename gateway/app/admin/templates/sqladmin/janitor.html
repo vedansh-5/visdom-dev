@@ -1,6 +1,9 @@
 {% extends "sqladmin/layout.html" %}
 {% block content %}
 <div class="col-12">
+  {% if notice %}
+  <div class="alert alert-info">{{ notice }}</div>
+  {% endif %}
   {% for section in janitor_findings() %}
   <div class="card mb-3">
     <div class="card-header d-flex align-items-center">
@@ -17,6 +20,19 @@
         <li class="border-bottom py-2">{{ row }}</li>
         {% endfor %}
       </ul>
+      {% if may_purge and section.purgeable %}
+      <div class="mt-3">
+        {% for item in section.purgeable %}
+        <form method="post" class="d-inline-block me-2 mb-2"
+              onsubmit="return confirm('Purge {{ item.slug }}? Its rows are removed for good. What is on the visdom volume stays, and shows up under orphaned workspaces.')">
+          <input type="hidden" name="workspace_id" value="{{ item.id }}">
+          <button type="submit" class="btn btn-sm btn-outline-danger">
+            Purge {{ item.slug }} ({{ item.days }}d)
+          </button>
+        </form>
+        {% endfor %}
+      </div>
+      {% endif %}
       {% else %}
       <p class="text-secondary mb-0"><em>Nothing to clean up here.</em></p>
       {% endif %}

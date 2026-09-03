@@ -140,6 +140,40 @@ def trashed_workspaces(db):
     return [(ws, max(0, (now - _aware(ws.trashed_at)).days)) for ws in rows]
 
 
+def purgeable(db):
+    """Trashed workspaces old enough that keeping them was not the intent."""
+    return [(ws, days) for ws, days in trashed_workspaces(db) if days >= TRASH_DAYS]
+
+
+def purge(db, workspace_id):
+    """Remove one workspace that has served its time in the trash.
+
+    Refuses anything not trashed, and anything trashed more recently than
+    ``TRASH_DAYS``, so the waiting period cannot be skipped by calling this
+    directly. Returns the slug that was removed, for the audit entry.
+
+    Rows only. The workspace's directory on the visdom volume is left where it
+    is and shows up under the orphan section afterwards, so reclaiming disk
+    stays a separate and visible step rather than something this quietly does.
+    """
+    workspace = db.query(Workspace).filter(Workspace.id == workspace_id).first()
+    if workspace is None:
+        raise LookupError("That workspace no longer exists.")
+    if workspace.trashed_at is None:
+        raise ValueError("That workspace is not in the trash.")
+    now = datetime.datetime.now(datetime.timezone.utc)
+    days = (now - _aware(workspace.trashed_at)).days
+    if days < TRASH_DAYS:
+        raise ValueError(
+            f"That workspace has been in the trash {days} days, "
+            f"and is not due until {TRASH_DAYS}."
+        )
+    slug = workspace.slug
+    db.delete(workspace)
+    db.commit()
+    return slug
+
+
 def findings(db):
     """Everything worth a look, as sections the page can render in order."""
     return [
@@ -158,6 +192,12 @@ def findings(db):
                     ", due for purge" if days >= TRASH_DAYS else "",
                 )
                 for ws, days in trashed_workspaces(db)
+            ],
+            # Only the rows past the waiting period, so the page cannot offer a
+            # button for something the purge would refuse anyway.
+            "purgeable": [
+                {"id": str(ws.id), "slug": ws.slug, "days": days}
+                for ws, days in purgeable(db)
             ],
         },
         {
