@@ -36,7 +36,33 @@ def _lookup_workspace(db: Session, workspace_slug: str) -> Workspace:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Workspace not found."
         )
+    _refuse_if_unavailable(workspace)
     return workspace
+
+
+def _refuse_if_unavailable(workspace: Workspace) -> None:
+    """Stop a suspended or trashed workspace being read from or written to.
+
+    Both paths into visdom resolve through here, so this is the one place that
+    has to say no. A trashed workspace answers the same way a suspended one
+    does rather than as missing, because its members are better served knowing
+    it still exists and can be restored.
+
+    visdom caches a resolve for its own interval, so this takes effect once
+    that expires rather than at once, and a socket already open never resolves
+    again. Neither leaves a workspace reachable for long, and neither lets a
+    new one in.
+    """
+    if workspace.trashed_at is not None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This workspace is in the trash. Ask an administrator to restore it.",
+        )
+    if not workspace.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This workspace has been suspended. Contact an administrator.",
+        )
 
 
 def _active_membership_role(db: Session, workspace_id, user_id) -> str:

@@ -91,6 +91,8 @@ class Workspace(Base):
     slug = Column(String, unique=True, nullable=False, index=True)  # e.g., 'nlp-labs'
     created_by = Column(UUID(as_uuid=True), ForeignKey("users.id"))
     created_at = Column(DateTime(timezone=True), default=utcnow)
+    is_active = Column(Boolean, default=True, nullable=False)
+    trashed_at = Column(DateTime(timezone=True), nullable=True)
 
     # Relationships
     creator = relationship("User", foreign_keys=[created_by])

@@ -47,15 +47,27 @@ _VISIBLE = {
 # Anything that decides what someone is entitled to stays with a superadmin.
 _CHANGEABLE = {
     VIEWER: set(),
-    SUPPORT: {"APIKey", "User"},
-    SUPERADMIN: {"APIKey", "User"},
+    SUPPORT: {"APIKey", "User", "Workspace"},
+    SUPERADMIN: {"APIKey", "User", "Workspace"},
 }
 
 # What each role may set, within a model it can change at all. Restricting the
 # form is what keeps "suspend an account" from also being "edit an account".
+# Suspending a workspace is reversible and leaves everything on disk, so it sits
+# with the rest of support's day to day. Moving one to the trash starts a clock
+# that ends in deletion, so it stays with a superadmin even though the step
+# itself is just as reversible.
 _EDITABLE_FIELDS = {
-    SUPPORT: {"APIKey": {"is_active"}, "User": {"is_active"}},
-    SUPERADMIN: {"APIKey": {"is_active"}, "User": {"is_active", "tier"}},
+    SUPPORT: {
+        "APIKey": {"is_active"},
+        "User": {"is_active"},
+        "Workspace": {"is_active"},
+    },
+    SUPERADMIN: {
+        "APIKey": {"is_active"},
+        "User": {"is_active", "tier"},
+        "Workspace": {"is_active", "trashed_at"},
+    },
 }
 
 

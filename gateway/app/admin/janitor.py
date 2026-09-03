@@ -32,6 +32,10 @@ from app.models import (
 # than being between runs.
 STALE_KEY_DAYS = 90
 
+# How long a workspace sits in the trash before this page starts saying it is
+# due. Nothing here purges anything, so this only decides when to mention it.
+TRASH_DAYS = 30
+
 
 def _aware(moment):
     """Treat a naive timestamp as UTC, which is what the columns hold."""
@@ -55,7 +59,10 @@ def empty_workspaces(db):
     return (
         db.query(Workspace)
         .options(joinedload(Workspace.creator))
-        .filter(~Workspace.id.in_(db.query(active.c.workspace_id)))
+        .filter(
+            ~Workspace.id.in_(db.query(active.c.workspace_id)),
+            Workspace.trashed_at.is_(None),
+        )
         .order_by(Workspace.slug)
         .all()
     )
@@ -115,9 +122,44 @@ def answered_invites(db):
     )
 
 
+def trashed_workspaces(db):
+    """Workspaces in the trash, longest-held first, with their age in days.
+
+    Restoring one is a superadmin clearing its trashed timestamp, so nothing
+    here is lost yet. Past ``TRASH_DAYS`` the intent was to stop keeping it,
+    which is worth surfacing even though no purge runs on its own.
+    """
+    now = datetime.datetime.now(datetime.timezone.utc)
+    rows = (
+        db.query(Workspace)
+        .options(joinedload(Workspace.creator))
+        .filter(Workspace.trashed_at.isnot(None))
+        .order_by(Workspace.trashed_at)
+        .all()
+    )
+    return [(ws, max(0, (now - _aware(ws.trashed_at)).days)) for ws in rows]
+
+
 def findings(db):
     """Everything worth a look, as sections the page can render in order."""
     return [
+        {
+            "title": "In the trash",
+            "note": (
+                f"Restorable by a superadmin. Nothing is purged automatically; "
+                f"past {TRASH_DAYS} days is flagged as due."
+            ),
+            "rows": [
+                "%s (%s) - %dd%s"
+                % (
+                    ws.slug,
+                    ws.creator.email if ws.creator else "unknown",
+                    days,
+                    ", due for purge" if days >= TRASH_DAYS else "",
+                )
+                for ws, days in trashed_workspaces(db)
+            ],
+        },
         {
             "title": "Workspaces with no active member",
             "note": "Unreachable through the app, and still holding whatever is on disk.",
