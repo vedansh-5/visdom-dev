@@ -78,9 +78,17 @@ class StaffAuth(AuthenticationBackend):
         admin_id = request.session.get(SESSION_KEY)
         if not admin_id:
             return RedirectResponse(request.url_for("admin:login"), status_code=302)
+        try:
+            # The session carries the id as text, and the column is a UUID.
+            # Converting here rather than leaving it to the driver also turns a
+            # tampered cookie into a signed-out visitor instead of an error.
+            admin_key = uuid.UUID(str(admin_id))
+        except ValueError:
+            request.session.clear()
+            return RedirectResponse(request.url_for("admin:login"), status_code=302)
         db = SessionLocal()
         try:
-            admin = db.query(AdminUser).filter(AdminUser.id == admin_id).first()
+            admin = db.query(AdminUser).filter(AdminUser.id == admin_key).first()
             if admin is None or not admin.is_active:
                 request.session.clear()
                 return RedirectResponse(request.url_for("admin:login"), status_code=302)
