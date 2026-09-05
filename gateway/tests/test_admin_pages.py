@@ -118,3 +118,49 @@ def test_the_workspace_pages_render_with_a_workspace_in_every_standing(admin_cli
     cleanup = admin_client.get("/admin/janitor", follow_redirects=False)
     assert cleanup.status_code == 200
     assert "due for purge" in cleanup.text
+
+
+def test_the_audit_trail_names_what_was_changed(admin_client):
+    """A bare row id says a workspace was suspended without saying which one."""
+    from app.models import AdminAction
+
+    db = admin_client.staff_db
+    workspace = Workspace(id=uuid.uuid4(), name="Named", slug="named-one")
+    db.add(workspace)
+    db.add(
+        AdminAction(
+            id=uuid.uuid4(),
+            admin_email="staff@example.com",
+            action="edit",
+            model="Workspace",
+            row_id=str(workspace.id),
+            changes={"is_active": False},
+        )
+    )
+    db.commit()
+
+    trail = admin_client.get("/admin/admin-action/list", follow_redirects=False)
+    assert trail.status_code == 200
+    assert "named-one" in trail.text
+
+
+def test_the_audit_trail_still_renders_once_the_row_is_gone(admin_client):
+    """An entry outlives what it describes, which is the point of keeping one."""
+    from app.models import AdminAction
+
+    db = admin_client.staff_db
+    db.add(
+        AdminAction(
+            id=uuid.uuid4(),
+            admin_email="staff@example.com",
+            action="delete",
+            model="Workspace",
+            row_id=str(uuid.uuid4()),
+            changes={"purged_from_trash": "long-gone"},
+        )
+    )
+    db.commit()
+
+    trail = admin_client.get("/admin/admin-action/list", follow_redirects=False)
+    assert trail.status_code == 200
+    assert "long-gone (purged)" in trail.text

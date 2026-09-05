@@ -614,6 +614,51 @@ def janitor_findings():
         db.close()
 
 
+# What to call a row of each kind, so the audit trail can name what was changed
+# rather than only pointing at it.
+_AUDIT_LABELS = {
+    "User": (User, lambda row: row.email),
+    "Workspace": (Workspace, lambda row: row.slug),
+    "APIKey": (APIKey, lambda row: f"{row.name} ({_email_of(row.owner)})"),
+    "AdminUser": (AdminUser, lambda row: row.email),
+}
+
+
+def _audit_subject(model, name):
+    """Name the row an entry is about, falling back to its id.
+
+    An entry outlives what it describes, which is the point of keeping one, so
+    a row that has since been deleted still has to render. A purge writes the
+    slug into its own changes for exactly that reason, and it is used here when
+    the workspace itself is long gone.
+    """
+    if not model.row_id:
+        return "unknown"
+    known = _AUDIT_LABELS.get(model.model)
+    if known is None:
+        return model.row_id
+    table, label = known
+    db = SessionLocal()
+    try:
+        row = None
+        try:
+            row = db.query(table).filter(table.id == uuid.UUID(model.row_id)).first()
+        except ValueError:
+            pass
+        if row is not None:
+            return label(row)
+    except Exception:
+        logging.exception("could not name the subject of an audit entry")
+        return model.row_id
+    finally:
+        db.close()
+
+    recorded = (model.changes or {}).get("purged_from_trash")
+    if recorded:
+        return f"{recorded} (purged)"
+    return f"{model.row_id} (deleted)"
+
+
 class AdminActionAdmin(RoleScopedView, model=AdminAction):
     """What staff have changed, newest first.
 
@@ -637,9 +682,10 @@ class AdminActionAdmin(RoleScopedView, model=AdminAction):
         AdminAction.admin_email: "Who",
         AdminAction.action: "Did",
         AdminAction.model: "To",
-        AdminAction.row_id: "Row",
+        AdminAction.row_id: "Which",
         AdminAction.changes: "Set",
     }
+    column_formatters = {AdminAction.row_id: _audit_subject}
     column_sortable_list = [AdminAction.created_at, AdminAction.admin_email]
     column_default_sort = (AdminAction.created_at, True)
     column_searchable_list = [AdminAction.admin_email, AdminAction.model]
