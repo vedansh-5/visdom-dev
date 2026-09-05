@@ -9,6 +9,7 @@ import SharedLinksTab from '../components/workspace/SharedLinksTab';
 import KeysTab from '../components/workspace/KeysTab';
 import BillingTab from '../components/workspace/BillingTab';
 import PendingInvitesBanner from '../components/workspace/PendingInvitesBanner';
+import SuspendedBanner from '../components/workspace/SuspendedBanner';
 import ProfileModal from '../components/ProfileModal';
 import { readScoped, writeScoped } from '../utils/storage';
 import { cachedGet, invalidate } from '../utils/requestCache';
@@ -112,6 +113,9 @@ fetchWorkspaces();
   };
 
   const needsWorkspace = WORKSPACE_SCOPED_TABS.has(activeTab) && !activeWorkspace;
+  // A suspended workspace refuses the socket, so the link would only lead to a
+  // page that fails to connect.
+  const canVisualize = Boolean(activeWorkspace) && activeWorkspace.is_active !== false;
 
   return (
     <div className="gc-shell">
@@ -149,15 +153,17 @@ fetchWorkspaces();
 
           <a
             className="gc-tab gc-tab-viz"
-            href={activeWorkspace ? `/vis/w/${activeWorkspace.slug}/` : undefined}
-            aria-disabled={!activeWorkspace}
+            href={canVisualize ? `/vis/w/${activeWorkspace.slug}/` : undefined}
+            aria-disabled={!canVisualize}
             onClick={(e) => {
-              if (!activeWorkspace) e.preventDefault();
+              if (!canVisualize) e.preventDefault();
             }}
             title={
-              activeWorkspace
+              canVisualize
                 ? `Open ${activeWorkspace.name}'s visualizations`
-                : 'Select a workspace to open its visualizations'
+                : activeWorkspace
+                  ? `${activeWorkspace.name} is suspended`
+                  : 'Select a workspace to open its visualizations'
             }
           >
             <LineChart size={15} />
@@ -191,6 +197,8 @@ fetchWorkspaces();
           onAccepted={handleInviteAccepted}
           onDeclined={handleInviteDeclined}
         />
+
+        <SuspendedBanner workspace={activeWorkspace} />
 
         {needsWorkspace ? (
           <section className="gc-panel">

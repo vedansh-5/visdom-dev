@@ -357,3 +357,18 @@ def test_purging_something_already_gone_says_so(db_session):
 
     with pytest.raises(LookupError):
         janitor.purge(db_session, uuid.uuid4())
+
+
+def test_the_listing_says_whether_a_workspace_is_suspended(client, make_user, make_workspace, db_session):
+    """The console has nothing to show the member without this, so a suspended
+    workspace looked ordinary and simply failed to open."""
+    user = make_user()
+    workspace = make_workspace(user)
+
+    listed = client.get(WORKSPACES, headers=user["headers"])
+    assert listed.json()[0]["is_active"] is True
+
+    _set(db_session, workspace, is_active=False)
+
+    listed = client.get(WORKSPACES, headers=user["headers"])
+    assert listed.json()[0]["is_active"] is False
