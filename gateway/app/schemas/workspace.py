@@ -38,6 +38,11 @@ class MyWorkspaceResponse(WorkspaceResponse):
     their membership-specific role and starred flag alongside the workspace."""
     role: str
     starred: bool
+    # False when staff have suspended the workspace. Everything is still there
+    # and nothing is lost, but nothing can be read from or written to it, so the
+    # console has something to say rather than leaving the member to discover it
+    # by finding their plots will not load.
+    is_active: bool = True
 
 
 class StarredUpdate(BaseModel):
