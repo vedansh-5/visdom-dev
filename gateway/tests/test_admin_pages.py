@@ -467,3 +467,51 @@ def test_editing_a_staff_account_cannot_change_the_role(admin_client):
 
     admin_client.staff_db.expire_all()
     assert admin_client.staff_db.get(AdminUser, account.id).role == "viewer"
+
+
+def test_suspending_a_workspace_evicts_its_sockets(admin_client, monkeypatch):
+    """Refusing the next resolve is not enough: a socket already open never
+    resolves again, so a tab watching at the moment of suspension keeps
+    watching until something else breaks the connection."""
+    from app.admin import activity
+
+    called = []
+    monkeypatch.setattr(
+        activity,
+        "evict_workspace",
+        lambda slug, reason=None: called.append((slug, reason)),
+    )
+
+    workspace = Workspace(id=uuid.uuid4(), name="Loud", slug="loud-one", is_active=True)
+    admin_client.staff_db.add(workspace)
+    admin_client.staff_db.commit()
+
+    suspended = admin_client.post(
+        f"/admin/workspace/edit/{workspace.id}", data={}, follow_redirects=False
+    )
+    assert suspended.status_code in (302, 303), suspended.text
+
+    assert called, "suspending should have asked the instances to close its sockets"
+    assert called[-1][0] == "loud-one"
+    assert "suspended" in called[-1][1]
+
+
+def test_an_active_workspace_is_not_evicted(admin_client, monkeypatch):
+    """Saving the form without stopping anything should disconnect nobody."""
+    from app.admin import activity
+
+    called = []
+    monkeypatch.setattr(
+        activity, "evict_workspace", lambda slug, reason=None: called.append(slug)
+    )
+
+    workspace = Workspace(id=uuid.uuid4(), name="Fine", slug="fine-one", is_active=True)
+    admin_client.staff_db.add(workspace)
+    admin_client.staff_db.commit()
+
+    admin_client.post(
+        f"/admin/workspace/edit/{workspace.id}",
+        data={"is_active": "y"},
+        follow_redirects=False,
+    )
+    assert called == []

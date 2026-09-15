@@ -377,6 +377,12 @@ def _days_since(moment):
     return max(0, (now - moment).days)
 
 
+# What the socket says on its way out. Worth distinguishing, because one of
+# these is something a member can undo by asking and the other is not.
+_SUSPENDED_REASON = "this workspace has been suspended, contact an administrator"
+_TRASHED_REASON = "this workspace is in the trash, ask an administrator to restore it"
+
+
 def _workspace_standing(model, name):
     """Whether the workspace is usable, and why not when it is not.
 
@@ -424,6 +430,22 @@ class WorkspaceAdmin(ChangeableView, model=Workspace):
         "size": _workspace_size,
     }
     form_columns = [Workspace.is_active, Workspace.trashed_at]
+
+    async def after_model_change(
+        self, data: dict, model, is_created: bool, request: Request
+    ) -> None:
+        """Close the workspace's open sockets once it is no longer usable.
+
+        After the change rather than during it, so a save that fails does not
+        disconnect anybody. The refusal at resolve time already stops anybody
+        new; without this a tab open at the moment of suspension keeps watching
+        and a training run keeps writing, because a live socket never resolves
+        again.
+        """
+        if model.trashed_at is not None:
+            activity.evict_workspace(model.slug, _TRASHED_REASON)
+        elif not model.is_active:
+            activity.evict_workspace(model.slug, _SUSPENDED_REASON)
     column_searchable_list = [Workspace.name, Workspace.slug]
     column_sortable_list = [Workspace.name, Workspace.slug, Workspace.created_at]
     column_default_sort = (Workspace.created_at, True)

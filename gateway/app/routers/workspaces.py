@@ -17,6 +17,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.admin.activity import evict_workspace
 from app.config import settings
 from app.dependencies import commit_or_conflict, get_current_user, get_db
 from app.email import build_share_link_url, send_workspace_invite_email
@@ -198,6 +199,10 @@ def delete_workspace(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workspace not found.")
     workspace.trashed_at = utcnow()
     db.commit()
+    # After the commit, so a failed delete disconnects nobody. An owner who
+    # deletes a workspace with a tab still open on it should not keep watching
+    # it, and a live socket never resolves again on its own.
+    evict_workspace(workspace.slug, "this workspace has been deleted")
 
 
 @router.patch("/{workspace_id}/star", response_model=MyWorkspaceResponse)

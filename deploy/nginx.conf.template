@@ -159,6 +159,18 @@ server {
         access_log off;
     }
 
+    # Closes a workspace's sockets by name. The gateway reaches it directly
+    # over the internal network, exactly like _activity.
+    location = /vis/_evict {
+        deny all;
+        access_log off;
+    }
+
+    location ~ ^/vis/w/[^/]+/_evict {
+        deny all;
+        access_log off;
+    }
+
     location ~ ^/vis/w/(?<ws_slug>[^/]+)/(?<vis_rest>.*)$ {
         auth_request /_auth_verify;
         error_page 401 = @auth_redirect;

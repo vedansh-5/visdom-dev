@@ -148,3 +148,50 @@ def activity_snapshot(timeout: float | None = None) -> dict:
 def activity_by_workspace(timeout: float | None = None) -> dict[str, dict]:
     """Live viewer/writer counts keyed by workspace id, across all instances."""
     return activity_snapshot(timeout)["workspaces"]
+
+
+def evict_workspace(slug: str, reason: str | None = None, timeout: float | None = None) -> int:
+    """Ask every instance to close the sockets it holds for a workspace.
+
+    Every instance is asked rather than only the one the proxy currently hashes
+    the workspace onto. Sockets outlive a reassignment, so the instance holding
+    them may no longer be the one serving new connections, and asking the wrong
+    one would leave exactly the sockets this is meant to close.
+
+    Best effort on purpose. The refusal at resolve time is what actually
+    withdraws a workspace; this only decides whether it takes effect now or at
+    the next resolve, so an instance that cannot be reached costs promptness
+    rather than correctness.
+    """
+    addresses = instance_addresses()
+    if not addresses or not slug:
+        return 0
+    if timeout is None:
+        timeout = settings.VISDOM_ACTIVITY_TIMEOUT
+
+    payload = {"workspace_slug": slug}
+    if reason:
+        payload["reason"] = reason
+    body = json.dumps(payload).encode()
+
+    closed = 0
+    with concurrent.futures.ThreadPoolExecutor(max_workers=len(addresses)) as pool:
+        for count in pool.map(lambda a: _tell(a, body, timeout), addresses):
+            closed += count
+    return closed
+
+
+def _tell(address: str, body: bytes, timeout: float) -> int:
+    """One instance's answer to an eviction, or zero when it did not give one."""
+    request = urllib.request.Request(
+        f"http://{address}/vis/_evict",
+        data=body,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            return int(json.loads(response.read() or b"{}").get("closed", 0))
+    except (urllib.error.URLError, OSError, ValueError, TypeError) as exc:
+        logging.warning("could not evict %s on %s: %s", body, address, exc)
+        return 0

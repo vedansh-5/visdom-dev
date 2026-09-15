@@ -372,3 +372,4 @@ def test_the_listing_says_whether_a_workspace_is_suspended(client, make_user, ma
 
     listed = client.get(WORKSPACES, headers=user["headers"])
     assert listed.json()[0]["is_active"] is False
+
