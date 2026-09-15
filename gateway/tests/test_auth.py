@@ -259,3 +259,79 @@ def test_logout_revokes_when_only_the_session_cookie_is_present(client, make_use
 
     replayed = client.get(VERIFY, headers={"Cookie": f"session_token={stolen}"})
     assert replayed.status_code == 401
+
+
+def test_register_leaves_last_login_unset(client, db_session):
+    """A fresh account has never logged in, so the column stays empty."""
+    from app.models import User
+
+    client.post(
+        "/api/v1/auth/register",
+        json={"email": "never-logged-in@example.com", "password": "securepassword"},
+    )
+
+    record = (
+        db_session.query(User)
+        .filter(User.email == "never-logged-in@example.com")
+        .first()
+    )
+    assert record is not None
+    assert record.last_login_at is None
+
+
+def test_login_records_last_login(client, db_session):
+    """Signing in stamps the column the inactivity rules will read."""
+    from app.models import User
+
+    email = "stamped@example.com"
+    client.post(
+        "/api/v1/auth/register",
+        json={"email": email, "password": "securepassword"},
+    )
+    response = client.post(
+        "/api/v1/auth/login", data={"username": email, "password": "securepassword"}
+    )
+    assert response.status_code == 200
+
+    record = db_session.query(User).filter(User.email == email).first()
+    assert record.last_login_at is not None
+
+
+def test_failed_login_does_not_record_last_login(client, db_session):
+    """A wrong password must not look like activity on the account."""
+    from app.models import User
+
+    email = "wrong-password@example.com"
+    client.post(
+        "/api/v1/auth/register",
+        json={"email": email, "password": "securepassword"},
+    )
+    response = client.post(
+        "/api/v1/auth/login", data={"username": email, "password": "notthepassword"}
+    )
+    assert response.status_code == 401
+
+    record = db_session.query(User).filter(User.email == email).first()
+    assert record.last_login_at is None
+
+
+def test_later_login_moves_last_login_forward(client, db_session):
+    """Each sign-in replaces the previous stamp rather than keeping the first."""
+    from app.models import User
+
+    email = "moves-forward@example.com"
+    client.post(
+        "/api/v1/auth/register",
+        json={"email": email, "password": "securepassword"},
+    )
+    client.post(
+        "/api/v1/auth/login", data={"username": email, "password": "securepassword"}
+    )
+    record = db_session.query(User).filter(User.email == email).first()
+    first = record.last_login_at
+
+    client.post(
+        "/api/v1/auth/login", data={"username": email, "password": "securepassword"}
+    )
+    db_session.refresh(record)
+    assert record.last_login_at >= first

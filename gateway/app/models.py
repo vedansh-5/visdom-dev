@@ -47,6 +47,7 @@ class User(Base):
     is_active = Column(Boolean, default=True)
     token_version = Column(Integer, default=0, server_default="0", nullable=False)
     created_at = Column(DateTime(timezone=True), default=utcnow)
+    last_login_at = Column(DateTime(timezone=True), nullable=True)
 
     __table_args__ = (
         Index("ix_users_username_lower", func.lower(username), unique=True),

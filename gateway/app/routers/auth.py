@@ -21,7 +21,7 @@ from app.dependencies import (
     resolve_active_api_key,
     user_for_access_token,
 )
-from app.models import APIKey, Membership, User, WorkspaceInvite
+from app.models import APIKey, Membership, User, WorkspaceInvite, utcnow
 from app.schemas import (
     GeneratedUsernameResponse,
     Token,
@@ -173,20 +173,21 @@ def login(
             detail="Inactive user."
         )
 
-    # generate token payloads
+    user.last_login_at = utcnow()
+    db.commit()
+
     claims = session_claims(user)
     access_token = create_access_token(data=claims)
     refresh_token = create_refresh_token(data=claims)
 
-    # set refresh token cookie
     response.set_cookie(
         key="refresh_token",
         value=refresh_token,
         httponly=True,
-        secure=settings.COOKIE_SECURE,  # HTTPS transfer in production
+        secure=settings.COOKIE_SECURE,
         samesite="lax",
         max_age=settings.REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60,
-        path="/api/v1/auth",  # scope cookie to auth endpoints
+        path="/api/v1/auth",
     )
     _set_session_cookie(response, access_token)
 
