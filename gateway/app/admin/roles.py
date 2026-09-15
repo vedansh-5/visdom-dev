@@ -4,78 +4,66 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
-"""Who may see what in the admin panel.
+"""Who may see and do what in the admin panel.
+
+Three roles, in increasing privilege: support handles the day to day incident,
+admin decides what a customer is entitled to, and superadmin decides who has
+console access at all.
 
 Reading every user's data is itself a privilege, so the role decides which
-models are visible rather than only which actions are allowed. Write
-permissions attach to these same roles when actions are added.
+models are visible rather than only which actions are allowed. Visibility,
+change, removal and creation are answered separately, and a role that may
+change a model is restricted again to the fields it may set. That separation is
+what keeps "suspend an account" from also meaning "edit an account".
 """
 
-VIEWER = "viewer"
 SUPPORT = "support"
+ADMIN = "admin"
 SUPERADMIN = "superadmin"
 
-ROLES = (VIEWER, SUPPORT, SUPERADMIN)
+ROLES = (SUPPORT, ADMIN, SUPERADMIN)
 
-_VISIBLE = {
-    VIEWER: {"User", "Workspace", "Membership"},
-    SUPPORT: {
-        "User",
-        "Workspace",
-        "Membership",
-        "APIKey",
-        "WorkspaceInvite",
-        "SharedLink",
-        "AdminAction",
-    },
-    SUPERADMIN: {
-        "User",
-        "Workspace",
-        "Membership",
-        "APIKey",
-        "WorkspaceInvite",
-        "SharedLink",
-        "AdminUser",
-        "AdminAction",
-    },
+_SUPPORT_VISIBLE = {
+    "User",
+    "Workspace",
+    "Membership",
+    "APIKey",
+    "WorkspaceInvite",
+    "SharedLink",
+    "AdminAction",
 }
 
+_VISIBLE = {
+    SUPPORT: _SUPPORT_VISIBLE,
+    ADMIN: _SUPPORT_VISIBLE,
+    SUPERADMIN: _SUPPORT_VISIBLE | {"AdminUser"},
+}
 
-# Changing data is a narrower privilege than reading it, so it is answered
-# separately rather than implied by visibility. Support handles the day to day
-# incident: revoking a leaked key, or stopping an account that is misbehaving.
-# Anything that decides what someone is entitled to stays with a superadmin.
 _CHANGEABLE = {
-    VIEWER: set(),
     SUPPORT: {"APIKey", "User", "Workspace", "Membership"},
+    ADMIN: {"APIKey", "User", "Workspace", "Membership"},
     SUPERADMIN: {"APIKey", "User", "Workspace", "Membership", "AdminUser"},
 }
 
-# Removing a row is narrower again. Support can change what someone is allowed
-# to do; taking their access away entirely, and the record of it with them,
-# stays with a superadmin.
 _REMOVABLE = {
-    VIEWER: set(),
     SUPPORT: set(),
+    ADMIN: {"Membership"},
     SUPERADMIN: {"Membership"},
 }
 
-# Adding a row is narrower still, and only staff accounts can be added at all.
-# Everything else in the panel is created by someone using the product, so there
-# is nothing there for staff to make. Handing out console access decides who can
-# read every account's data, which is a superadmin's call.
 _ADDABLE = {
-    VIEWER: set(),
     SUPPORT: set(),
+    ADMIN: set(),
     SUPERADMIN: {"AdminUser"},
 }
 
-# What each role may set, within a model it can change at all. Restricting the
-# form is what keeps "suspend an account" from also being "edit an account".
-# Suspending a workspace is reversible and leaves everything on disk, so it sits
-# with the rest of support's day to day. Moving one to the trash starts a clock
-# that ends in deletion, so it stays with a superadmin even though the step
-# itself is just as reversible.
+_ENTITLEMENT_FIELDS = {
+    "APIKey": {"is_active"},
+    "User": {"is_active", "tier"},
+    "Workspace": {"is_active", "trashed_at"},
+    "Membership": {"role"},
+}
+
 _EDITABLE_FIELDS = {
     SUPPORT: {
         "APIKey": {"is_active"},
@@ -83,17 +71,11 @@ _EDITABLE_FIELDS = {
         "Workspace": {"is_active"},
         "Membership": {"role"},
     },
-    SUPERADMIN: {
-        "APIKey": {"is_active"},
-        "User": {"is_active", "tier"},
-        "Workspace": {"is_active", "trashed_at"},
-        "Membership": {"role"},
-        # Not the role or the email. Changing what a colleague may see is a
-        # different decision from taking their access away, and the second is
-        # the one that has to be possible without a shell on the box.
-        "AdminUser": {"is_active"},
-    },
+    ADMIN: _ENTITLEMENT_FIELDS,
+    SUPERADMIN: dict(_ENTITLEMENT_FIELDS, AdminUser={"is_active"}),
 }
+
+_SWEEPERS = {SUPPORT, ADMIN, SUPERADMIN}
 
 
 def can_see(role, model_name):
@@ -117,6 +99,15 @@ def can_add(role, model_name):
 def can_remove(role, model_name):
     """Whether this role may delete a row of this model outright."""
     return model_name in _REMOVABLE.get(role, set())
+
+
+def can_sweep(role):
+    """Whether this role may open the cleanup page.
+
+    It reads across every workspace at once, so it is answered here rather than
+    by a tuple spelled out at each call site.
+    """
+    return role in _SWEEPERS
 
 
 def is_valid(role):

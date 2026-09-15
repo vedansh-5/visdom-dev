@@ -820,8 +820,9 @@ class AdminUserAdmin(RoleScopedView, model=AdminUser):
 class JanitorView(BaseView):
     """Leftovers worth a look, on one page.
 
-    Support and above only: it reads across every workspace at once, which is a
-    wider view of other people's data than a viewer is given anywhere else.
+    Staff only, and the purge is narrower still: reading across every workspace
+    at once is a wide view of other people's data, and deleting what it finds is
+    irreversible.
     """
 
     name = "Cleanup"
@@ -838,17 +839,22 @@ class JanitorView(BaseView):
 
     @staticmethod
     def _allowed(request: Request) -> bool:
-        return request.session.get(ROLE_KEY) in (roles.SUPPORT, roles.SUPERADMIN)
+        return roles.can_sweep(request.session.get(ROLE_KEY))
 
-    # One exposed route, taking both methods, rather than a second route for
-    # the purge. sqladmin names a custom view's route after the exposed
-    # function and the sidebar links to that name, so a second exposed method
-    # would rename the view out from under its own menu entry.
     @expose("/janitor", methods=["GET", "POST"])
     async def page(self, request: Request):
-        # sqladmin does not apply is_accessible to an exposed route, only to the
-        # menu entry, so without this a viewer who typed the URL would be served
-        # the page. The ModelViews are gated by sqladmin itself; this one is not.
+        """Render the cleanup page, and run the purge on POST.
+
+        One route taking both methods, rather than a second route for the purge:
+        sqladmin names a custom view's route after the exposed function and the
+        sidebar links to that name, so a second exposed method would rename the
+        view out from under its own menu entry.
+
+        The role check below is load bearing and must not be removed. sqladmin
+        applies ``is_accessible`` to the menu entry only, not to an exposed
+        route, so without it anyone who typed the URL would be served the page.
+        ModelViews are gated by sqladmin itself; this one is not.
+        """
         if not self._allowed(request):
             return Response("Forbidden", status_code=403)
 
@@ -1101,12 +1107,11 @@ def admin_identity(request):
 def overview_attention(request):
     """Cleanup sections that have something in them, for roles allowed to look.
 
-    The cleanup page reads across every workspace at once, so a viewer is not
-    given it. None says the role may not look, which is a different answer from
-    an empty list saying there is nothing to find, and keeps the policy here
-    rather than in the template.
+    None says the role may not look, which is a different answer from an empty
+    list saying there is nothing to find, and keeps the policy here rather than
+    in the template.
     """
-    if request.session.get(ROLE_KEY) not in (roles.SUPPORT, roles.SUPERADMIN):
+    if not roles.can_sweep(request.session.get(ROLE_KEY)):
         return None
     try:
         return [section for section in janitor_findings() if section["rows"]]
