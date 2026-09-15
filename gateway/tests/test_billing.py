@@ -89,3 +89,91 @@ def test_change_plan_invalid_tier(client, make_user):
         f"{BILLING}/subscription", json={"tier": "platinum"}, headers=user["headers"]
     )
     assert response.status_code == 422
+
+
+WORKSPACES = "/api/v1/workspaces"
+KEYS = "/api/v1/keys"
+
+
+def test_free_plan_refuses_a_second_workspace(client, make_user):
+    user = make_user()
+    first = client.post(
+        WORKSPACES, json={"name": "One", "slug": "limit-one"}, headers=user["headers"]
+    )
+    assert first.status_code == 201
+
+    second = client.post(
+        WORKSPACES, json={"name": "Two", "slug": "limit-two"}, headers=user["headers"]
+    )
+    assert second.status_code == 402
+    assert "workspace limit" in second.json()["detail"]
+
+
+def test_upgrading_raises_the_workspace_ceiling(client, make_user):
+    user = make_user()
+    assert (
+        client.post(
+            WORKSPACES, json={"name": "One", "slug": "up-one"}, headers=user["headers"]
+        ).status_code
+        == 201
+    )
+    assert (
+        client.post(
+            WORKSPACES, json={"name": "Two", "slug": "up-two"}, headers=user["headers"]
+        ).status_code
+        == 402
+    )
+
+    client.post(f"{BILLING}/subscription", json={"tier": "pro"}, headers=user["headers"])
+
+    assert (
+        client.post(
+            WORKSPACES, json={"name": "Two", "slug": "up-two"}, headers=user["headers"]
+        ).status_code
+        == 201
+    )
+
+
+def test_an_unlimited_plan_is_never_refused(client, make_user):
+    user = make_user()
+    client.post(
+        f"{BILLING}/subscription", json={"tier": "enterprise"}, headers=user["headers"]
+    )
+    for n in range(3):
+        created = client.post(
+            WORKSPACES,
+            json={"name": f"W{n}", "slug": f"unlimited-{n}"},
+            headers=user["headers"],
+        )
+        assert created.status_code == 201, created.text
+
+
+def test_free_plan_refuses_a_third_api_key(client, make_user):
+    user = make_user()
+    for n in range(2):
+        made = client.post(
+            KEYS, json={"name": f"key-{n}", "scope": "org"}, headers=user["headers"]
+        )
+        assert made.status_code == 201, made.text
+
+    third = client.post(
+        KEYS, json={"name": "key-3", "scope": "org"}, headers=user["headers"]
+    )
+    assert third.status_code == 402
+    assert "API key limit" in third.json()["detail"]
+
+
+def test_the_billing_page_and_the_refusal_agree(client, make_user):
+    """The number someone is shown is the number they are held to."""
+    user = make_user()
+    client.post(
+        WORKSPACES, json={"name": "One", "slug": "agree-one"}, headers=user["headers"]
+    )
+
+    shown = client.get(f"{BILLING}/subscription", headers=user["headers"]).json()
+    assert shown["usage"]["workspaces"] == {"used": 1, "limit": 1}
+
+    refused = client.post(
+        WORKSPACES, json={"name": "Two", "slug": "agree-two"}, headers=user["headers"]
+    )
+    assert refused.status_code == 402

@@ -64,3 +64,14 @@ def get_plan(tier):
 
 def ordered_plans():
     return [PLANS[tier] for tier in PLAN_ORDER]
+
+
+def limit_for(tier, resource):
+    """The plan's ceiling for a resource, or None when it is unlimited."""
+    return get_plan(tier or DEFAULT_TIER)["limits"].get(resource)
+
+
+def at_limit(tier, resource, used):
+    """Whether one more of this resource would exceed the plan."""
+    ceiling = limit_for(tier, resource)
+    return ceiling is not None and used >= ceiling
