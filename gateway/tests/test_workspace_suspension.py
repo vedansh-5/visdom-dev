@@ -153,9 +153,16 @@ def test_support_may_suspend_but_not_trash():
     }
 
 
-def test_a_viewer_may_change_nothing():
-    assert not roles.can_change(roles.VIEWER, "Workspace")
-    assert roles.editable_fields(roles.VIEWER, "Workspace") == set()
+def test_an_admin_may_trash():
+    assert roles.editable_fields(roles.ADMIN, "Workspace") == {
+        "is_active",
+        "trashed_at",
+    }
+
+
+def test_an_unknown_role_may_change_nothing():
+    assert not roles.can_change("stranger", "Workspace")
+    assert roles.editable_fields("stranger", "Workspace") == set()
 
 
 def test_the_cleanup_page_reports_the_trash_with_its_age(client, make_user, make_workspace, db_session):

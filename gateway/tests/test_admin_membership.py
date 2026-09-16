@@ -137,8 +137,15 @@ def test_support_may_still_change_a_role(workspace_with_members):
     change_role(plain, "viewer", role=roles.SUPPORT)
 
 
-def test_a_viewer_can_do_neither(workspace_with_members):
+def test_an_admin_can_do_both(workspace_with_members):
     plain = workspace_with_members["plain"]
 
-    assert not may_edit(roles.VIEWER, plain)
-    assert not may_remove(roles.VIEWER, plain)
+    assert may_edit(roles.ADMIN, plain)
+    assert may_remove(roles.ADMIN, plain)
+
+
+def test_an_unknown_role_can_do_neither(workspace_with_members):
+    plain = workspace_with_members["plain"]
+
+    assert not may_edit("stranger", plain)
+    assert not may_remove("stranger", plain)

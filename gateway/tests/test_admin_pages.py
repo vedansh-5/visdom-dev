@@ -448,13 +448,13 @@ def test_editing_a_staff_account_cannot_change_the_role(admin_client):
 
     admin_client.post(
         "/admin/admin-user/create",
-        data=_staff_form("viewer-only@example.com", role="viewer"),
+        data=_staff_form("support-only@example.com", role="support"),
         follow_redirects=False,
     )
     admin_client.staff_db.expire_all()
     account = (
         admin_client.staff_db.query(AdminUser)
-        .filter(AdminUser.email == "viewer-only@example.com")
+        .filter(AdminUser.email == "support-only@example.com")
         .first()
     )
     assert account is not None
@@ -466,7 +466,7 @@ def test_editing_a_staff_account_cannot_change_the_role(admin_client):
     )
 
     admin_client.staff_db.expire_all()
-    assert admin_client.staff_db.get(AdminUser, account.id).role == "viewer"
+    assert admin_client.staff_db.get(AdminUser, account.id).role == "support"
 
 
 def test_suspending_a_workspace_evicts_its_sockets(admin_client, monkeypatch):
