@@ -174,9 +174,15 @@ class UserAdmin(ChangeableView, model=User):
         User.tier,
         User.is_active,
         User.created_at,
+        User.last_login_at,
     ]
     column_searchable_list = [User.email, User.username]
-    column_sortable_list = [User.email, User.tier, User.created_at]
+    column_sortable_list = [
+        User.email,
+        User.tier,
+        User.created_at,
+        User.last_login_at,
+    ]
     column_default_sort = (User.created_at, True)
     column_details_exclude_list = [User.password_hash]
     form_columns = [User.is_active, User.tier]
