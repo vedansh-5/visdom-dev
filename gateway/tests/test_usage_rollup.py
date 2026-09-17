@@ -135,3 +135,58 @@ def test_a_tick_that_reaches_nobody_records_nothing(db_session):
 def test_a_tick_before_any_instance_answers_records_nothing(db_session):
     unanswered = {"answered": False, "workspaces": {}}
     assert usage_rollup.sample_once(db_session, lambda: unanswered) == 0
+
+
+def test_a_mask_counts_the_minutes_it_marks():
+    assert usage_rollup.active_minutes_from(0) == 0
+    assert usage_rollup.active_minutes_from(0b1) == 1
+    assert usage_rollup.active_minutes_from(0b1011) == 3
+    assert usage_rollup.active_minutes_from((1 << 60) - 1) == 60
+
+
+def test_a_missing_mask_is_no_minutes():
+    assert usage_rollup.active_minutes_from(None) == 0
+    assert usage_rollup.active_minutes_from("nonsense") == 0
+
+
+def test_active_minutes_are_not_differenced_between_samples():
+    """The mask is cumulative for the hour, so the count is a level, not a
+    delta. Differencing it would bill the first sample and nothing after."""
+    last_seen = {}
+    first = usage_rollup.deltas_from(
+        {"ws": {**_entry(), "active_minutes_mask": 0b11}}, last_seen
+    )
+    second = usage_rollup.deltas_from(
+        {"ws": {**_entry(), "active_minutes_mask": 0b111}}, last_seen
+    )
+    assert first["ws"]["active_minutes"] == 2
+    assert second["ws"]["active_minutes"] == 3
+
+
+def test_the_hour_keeps_the_highest_minute_count(
+    client, make_user, make_workspace, db_session
+):
+    workspace = make_workspace(make_user())
+    usage_rollup.record(
+        db_session, {workspace["id"]: {**_entry(), "active_minutes_mask": 0b111}}
+    )
+    usage_rollup.record(
+        db_session, {workspace["id"]: {**_entry(), "active_minutes_mask": 0b1}}
+    )
+
+    row = db_session.query(WorkspaceUsageHour).one()
+    assert row.active_minutes == 3
+
+
+def test_a_workspace_active_but_not_writing_is_still_recorded(
+    client, make_user, make_workspace, db_session
+):
+    """Minutes alone are worth a row: that is the thing being billed."""
+    workspace = make_workspace(make_user())
+    assert (
+        usage_rollup.record(
+            db_session, {workspace["id"]: {**_entry(), "active_minutes_mask": 0b1}}
+        )
+        == 1
+    )
+    assert db_session.query(WorkspaceUsageHour).one().active_minutes == 1

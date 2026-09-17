@@ -110,11 +110,33 @@ def _combine(merged: dict[str, dict], workspace_id: str, entry: dict) -> None:
         if mine is None and theirs is None:
             continue
         current[key] = (mine or 0) + (theirs or 0)
+    _union_active_minutes(current, entry)
     current["slug"] = current.get("slug") or entry.get("slug")
     for key in ("last_active_at", "bytes"):
         mine, theirs = current.get(key), entry.get(key)
         if theirs is not None and (mine is None or theirs > mine):
             current[key] = theirs
+
+
+def _union_active_minutes(current: dict, entry: dict) -> None:
+    """Combine two instances' active-minute masks for the same workspace.
+
+    A union rather than a sum: three instances that each served a write in the
+    same minute did one minute of work between them. Masks belong to an hour, so
+    only answers about the same hour combine, and a later hour replaces an
+    earlier one outright rather than folding two hours into one number.
+    """
+    mine_hour, theirs_hour = current.get("active_hour"), entry.get("active_hour")
+    if theirs_hour is None:
+        return
+    if mine_hour is None or theirs_hour > mine_hour:
+        current["active_hour"] = theirs_hour
+        current["active_minutes_mask"] = entry.get("active_minutes_mask") or 0
+        return
+    if theirs_hour == mine_hour:
+        current["active_minutes_mask"] = (current.get("active_minutes_mask") or 0) | (
+            entry.get("active_minutes_mask") or 0
+        )
 
 
 def activity_snapshot(timeout: float | None = None) -> dict:

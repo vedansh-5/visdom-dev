@@ -20,6 +20,12 @@ instance has counted since it came back.
 The last-seen totals live in this process. Losing them costs one tick, because
 the next sample treats the totals as a fresh start and the hour keeps whatever
 had already been written to it.
+
+Active minutes are not a counter and are not differenced. The instances report
+which minutes of the current hour had work in them as a mask, already unioned
+across instances by the fan-out, so the count only grows while the hour lasts.
+The hour keeps the highest count it has seen, which survives an instance
+restarting and starting its mask again.
 """
 
 import datetime
@@ -39,6 +45,14 @@ def hour_start(moment: datetime.datetime | None = None) -> datetime.datetime:
     """The top of the hour a moment belongs to."""
     moment = moment or utcnow()
     return moment.replace(minute=0, second=0, microsecond=0)
+
+
+def active_minutes_from(mask) -> int:
+    """How many minutes of an hour a mask says had work in them."""
+    try:
+        return int(mask).bit_count()
+    except (TypeError, ValueError):
+        return 0
 
 
 def counter_delta(previous: int, current: int) -> int:
@@ -62,8 +76,13 @@ def deltas_from(snapshot: dict, last_seen: dict) -> dict:
             for name in _COUNTERS
         }
         peak_bytes = int(entry.get("bytes") or 0)
-        if any(counters.values()) or peak_bytes:
-            changes[workspace_id] = {**counters, "peak_bytes": peak_bytes}
+        active_minutes = active_minutes_from(entry.get("active_minutes_mask"))
+        if any(counters.values()) or peak_bytes or active_minutes:
+            changes[workspace_id] = {
+                **counters,
+                "peak_bytes": peak_bytes,
+                "active_minutes": active_minutes,
+            }
         last_seen[workspace_id] = {
             name: int(entry.get(name) or 0) for name in _COUNTERS
         }
@@ -97,6 +116,7 @@ def _fold(db: Session, workspace_id, bucket, change) -> None:
                 broadcasts=change["broadcasts"],
                 broadcast_bytes=change["broadcast_bytes"],
                 peak_bytes=change["peak_bytes"],
+                active_minutes=change["active_minutes"],
             )
         )
         return
@@ -104,6 +124,7 @@ def _fold(db: Session, workspace_id, bucket, change) -> None:
     row.broadcasts = (row.broadcasts or 0) + change["broadcasts"]
     row.broadcast_bytes = (row.broadcast_bytes or 0) + change["broadcast_bytes"]
     row.peak_bytes = max(row.peak_bytes or 0, change["peak_bytes"])
+    row.active_minutes = max(row.active_minutes or 0, change["active_minutes"])
 
 
 def record(db: Session, snapshot: dict, when: datetime.datetime | None = None) -> int:
