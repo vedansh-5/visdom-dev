@@ -5,6 +5,7 @@ import { api, useAuth } from '../context/AuthContext';
 import { useToast } from './toast/useToast';
 import { parseApiError } from '../utils/helpers';
 import ModalPortal from './ModalPortal';
+import { formatJoined, formatLastSignIn, planName } from '../utils/profileDetails';
 
 const USERNAME_PATTERN = /^[A-Za-z0-9_-]{3,30}$/;
 
@@ -18,6 +19,9 @@ const ProfileModal = ({ onClose }) => {
   const toast = useToast();
 
   const isUnchanged = username === user?.username;
+
+  const joined = formatJoined(user?.created_at);
+  const lastSignIn = formatLastSignIn(user?.last_login_at);
 
   useEffect(() => {
     if (isUnchanged || !username) {
@@ -81,6 +85,25 @@ const ProfileModal = ({ onClose }) => {
         <label className="gc-label gc-mb-1">Email Address</label>
         <div className="gc-settings-value">{user?.email}</div>
       </div>
+
+      <div className="gc-field">
+        <label className="gc-label gc-mb-1">Plan</label>
+        <div className="gc-settings-value">{planName(user?.tier)}</div>
+      </div>
+
+      {joined && (
+        <div className="gc-field">
+          <label className="gc-label gc-mb-1">Member since</label>
+          <div className="gc-settings-value">{joined}</div>
+        </div>
+      )}
+
+      {lastSignIn && (
+        <div className="gc-field">
+          <label className="gc-label gc-mb-1">Last sign-in</label>
+          <div className="gc-settings-value">{lastSignIn}</div>
+        </div>
+      )}
 
       <form onSubmit={handleSubmit}>
         <div className="gc-field">

@@ -36,6 +36,7 @@ class UserResponse(UserBase):
     tier: str
     is_active: bool
     created_at: datetime.datetime
+    last_login_at: Optional[datetime.datetime] = None
 
     model_config = ConfigDict(from_attributes=True)
 
