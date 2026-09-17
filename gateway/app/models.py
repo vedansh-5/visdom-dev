@@ -18,6 +18,7 @@ def utcnow() -> datetime.datetime:
     return datetime.datetime.now(datetime.timezone.utc)
 from sqlalchemy import (
     JSON,
+    BigInteger,
     Boolean,
     Column,
     DateTime,
@@ -183,3 +184,36 @@ class AdminUser(Base):
     is_active = Column(Boolean, default=True, nullable=False, server_default="true")
     created_at = Column(DateTime(timezone=True), default=utcnow)
     last_login_at = Column(DateTime(timezone=True), nullable=True)
+
+
+class WorkspaceUsageHour(Base):
+    """What one workspace cost in one hour.
+
+    The instances keep their counters in memory and lose them on restart, so
+    what they report is only ever "since I started". This is where that becomes
+    a durable record: the gateway samples on a tick, works out what changed
+    since the last sample, and adds it here.
+
+    Counters and gauges are stored side by side but do not combine the same
+    way. Writes and broadcasts accumulate, so a month is their sum. Stored bytes
+    is a level rather than a total, so the hour keeps the highest reading and a
+    month is the largest of those, never the sum.
+    """
+
+    __tablename__ = "workspace_usage_hours"
+
+    workspace_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("workspaces.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    hour_start = Column(DateTime(timezone=True), primary_key=True)
+    active_minutes = Column(Integer, nullable=False, default=0, server_default="0")
+    writes = Column(BigInteger, nullable=False, default=0, server_default="0")
+    broadcasts = Column(BigInteger, nullable=False, default=0, server_default="0")
+    broadcast_bytes = Column(BigInteger, nullable=False, default=0, server_default="0")
+    peak_bytes = Column(BigInteger, nullable=False, default=0, server_default="0")
+
+    __table_args__ = (
+        Index("ix_workspace_usage_hours_hour_start", "hour_start"),
+    )

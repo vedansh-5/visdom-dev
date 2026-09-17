@@ -63,3 +63,48 @@ def test_a_slug_is_taken_from_whichever_instance_knows_it():
     result = fold({"slug": None, "viewers": 0}, {"slug": "real-one", "viewers": 1})
 
     assert result["slug"] == "real-one"
+
+
+def _answer(hour, mask, **extra):
+    return {"active_hour": hour, "active_minutes_mask": mask, **extra}
+
+
+def test_two_instances_active_in_the_same_minute_count_it_once():
+    """Three instances serving one workspace in one minute did one minute of
+    work between them, so the masks union rather than sum."""
+    merged = {}
+    _combine(merged, "ws", _answer(100, 0b001))
+    _combine(merged, "ws", _answer(100, 0b001))
+    _combine(merged, "ws", _answer(100, 0b010))
+
+    assert merged["ws"]["active_minutes_mask"] == 0b011
+
+
+def test_a_later_hour_replaces_an_earlier_one():
+    """Masks are positions within an hour, so folding two hours together would
+    read one hour's minutes as another's."""
+    merged = {}
+    _combine(merged, "ws", _answer(100, 0b1111))
+    _combine(merged, "ws", _answer(101, 0b1))
+
+    assert merged["ws"]["active_hour"] == 101
+    assert merged["ws"]["active_minutes_mask"] == 0b1
+
+
+def test_an_earlier_hour_does_not_overwrite_a_later_one():
+    merged = {}
+    _combine(merged, "ws", _answer(101, 0b1))
+    _combine(merged, "ws", _answer(100, 0b1111))
+
+    assert merged["ws"]["active_hour"] == 101
+    assert merged["ws"]["active_minutes_mask"] == 0b1
+
+
+def test_an_instance_that_reports_no_hour_changes_nothing():
+    """An older visdom has no masks to give, and must not blank a newer one."""
+    merged = {}
+    _combine(merged, "ws", _answer(100, 0b101))
+    _combine(merged, "ws", {"writes": 3})
+
+    assert merged["ws"]["active_hour"] == 100
+    assert merged["ws"]["active_minutes_mask"] == 0b101
