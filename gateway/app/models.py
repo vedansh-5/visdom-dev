@@ -44,7 +44,7 @@ class User(Base):
     stripe_customer_id = Column(String, nullable=True)
     tier = Column(String, default="free")  # free, pro, enterprise
     is_staff = Column(Boolean, default=False)
-    is_active = Column(Boolean, default=True)
+    is_active = Column(Boolean, default=True, nullable=False, server_default="true")
     token_version = Column(Integer, default=0, server_default="0", nullable=False)
     created_at = Column(DateTime(timezone=True), default=utcnow)
     last_login_at = Column(DateTime(timezone=True), nullable=True)
@@ -65,7 +65,7 @@ class APIKey(Base):
     name = Column(String, nullable=False)  # e.g., "training-cluster"
     prefix = Column(String, nullable=False)  # e.g., "visdom_live"
     hashed_key = Column(String, unique=True, index=True, nullable=False)  # SHA-256 hash
-    is_active = Column(Boolean, default=True)
+    is_active = Column(Boolean, default=True, nullable=False, server_default="true")
     scope = Column(String, nullable=False, default="org", server_default="org")
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     created_at = Column(DateTime(timezone=True), default=utcnow)
@@ -92,7 +92,7 @@ class Workspace(Base):
     slug = Column(String, unique=True, nullable=False, index=True)  # e.g., 'nlp-labs'
     created_by = Column(UUID(as_uuid=True), ForeignKey("users.id"))
     created_at = Column(DateTime(timezone=True), default=utcnow)
-    is_active = Column(Boolean, default=True, nullable=False)
+    is_active = Column(Boolean, default=True, nullable=False, server_default="true")
     trashed_at = Column(DateTime(timezone=True), nullable=True)
 
     # Relationships

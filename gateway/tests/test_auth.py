@@ -335,3 +335,44 @@ def test_later_login_moves_last_login_forward(client, db_session):
     )
     db_session.refresh(record)
     assert record.last_login_at >= first
+
+
+def test_a_user_cannot_be_left_without_an_active_flag(client, make_user, db_session):
+    """A NULL here reads as false, so login would refuse a correct password.
+
+    The account has not been suspended by anyone; the column simply never got a
+    value, which is what happens on any write that does not go through the ORM.
+    The database default and the NOT NULL are what make that unreachable.
+    """
+    import pytest
+    from sqlalchemy.exc import IntegrityError
+
+    from app.models import User
+
+    user = make_user(email="needs-a-flag@example.com")
+    record = db_session.query(User).filter(User.email == user["email"]).first()
+
+    record.is_active = None
+    with pytest.raises(IntegrityError):
+        db_session.commit()
+    db_session.rollback()
+
+
+def test_an_api_key_cannot_be_left_without_an_active_flag(client, make_user, db_session):
+    """Same column, same silent failure: a key with no flag stops working."""
+    import pytest
+    from sqlalchemy.exc import IntegrityError
+
+    from app.models import APIKey
+
+    user = make_user(email="key-needs-a-flag@example.com")
+    created = client.post(
+        "/api/v1/keys", json={"name": "k"}, headers=user["headers"]
+    )
+    assert created.status_code in (200, 201), created.text
+
+    record = db_session.query(APIKey).first()
+    record.is_active = None
+    with pytest.raises(IntegrityError):
+        db_session.commit()
+    db_session.rollback()
