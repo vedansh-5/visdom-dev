@@ -13,6 +13,7 @@ import SuspendedBanner from '../components/workspace/SuspendedBanner';
 import ProfileModal from '../components/ProfileModal';
 import { readScoped, writeScoped } from '../utils/storage';
 import { cachedGet, invalidate } from '../utils/requestCache';
+import { pickActiveWorkspace, requestedWorkspaceSlug } from '../utils/activeWorkspace';
 
 const TABS = [
   { id: 'workspaces', label: 'Workspaces', icon: Building2 },
@@ -50,12 +51,9 @@ const Dashboard = () => {
     try {
       const data = await cachedGet('/workspaces', () => api.get('/workspaces').then((res) => res.data), { force });
       setWorkspaces(data);
-      setActiveWorkspace((prev) => {
-        if (prev) {
-          return data.find((ws) => ws.id === prev.id) || null;
-        }
-        return data[0] || null;
-      });
+      setActiveWorkspace((prev) =>
+        pickActiveWorkspace(prev, data, requestedWorkspaceSlug(window.location.search))
+      );
     } catch (err) {
       console.error(err);
     } finally {
