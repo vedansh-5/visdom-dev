@@ -36,6 +36,7 @@ from app.schemas.workspace import (
     WorkspaceCreate,
 )
 from app.security import get_password_hash, verify_password
+from app.usage import refuse_if_at_limit
 
 router = APIRouter(prefix="/workspaces", tags=["workspaces"])
 
@@ -146,6 +147,7 @@ def create_workspace(
             detail="A workspace with this slug already exists.",
         )
 
+    refuse_if_at_limit(db, current_user, "workspaces")
     workspace = Workspace(name=workspace_in.name, slug=workspace_in.slug, created_by=current_user.id)
     db.add(workspace)
     db.flush()  # populate workspace.id before creating the membership row
@@ -237,6 +239,9 @@ def invite_member(
     workspace = db.query(Workspace).filter(Workspace.id == workspace_id).first()
     if not workspace:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workspace not found.")
+
+    owner = db.query(User).filter(User.id == workspace.created_by).first()
+    refuse_if_at_limit(db, owner or current_user, "members")
 
     email_lower = invite.email.strip().lower()
     invitee = db.query(User).filter(User.email == email_lower).first()
