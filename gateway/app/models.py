@@ -217,3 +217,25 @@ class WorkspaceUsageHour(Base):
     __table_args__ = (
         Index("ix_workspace_usage_hours_hour_start", "hour_start"),
     )
+
+
+class UsageBaseline(Base):
+    """The last cumulative totals one instance reported about one workspace.
+
+    Differences have to be taken per instance, not on the fan-out's sum. Three
+    instances at 100 each sum to 300; if one restarts the sum falls to 202, and
+    reading that fall as a reset would bill 202 for what was really 2. Kept per
+    instance, a reset is visible for exactly the instance that had it.
+
+    Kept in the database rather than in the process so that neither a restart
+    nor a different worker taking the next tick loses the baseline. Losing it
+    would mean taking an instance's whole lifetime count as new.
+    """
+
+    __tablename__ = "usage_baselines"
+
+    instance = Column(String, primary_key=True)
+    workspace_id = Column(String, primary_key=True)
+    writes = Column(BigInteger, nullable=False, default=0, server_default="0")
+    broadcasts = Column(BigInteger, nullable=False, default=0, server_default="0")
+    broadcast_bytes = Column(BigInteger, nullable=False, default=0, server_default="0")
