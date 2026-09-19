@@ -867,3 +867,31 @@ def test_a_full_disk_is_reported_as_a_share():
     assert _share(1, 0) is None
     assert format_bytes(40 * 1024 * 1024) == "40.0 MB"
     assert format_minutes(95) == "1h 35m"
+
+
+def _nav(page_html):
+    import re
+
+    return {
+        text.strip(): (href, "is-active" in cls)
+        for cls, href, text in re.findall(
+            r'<a class="ap-nav-row([^"]*)" href="([^"]+)">.*?<span[^>]*>([^<]+)</span>',
+            page_html,
+            re.S,
+        )
+    }
+
+
+def test_each_custom_page_has_its_own_sidebar_link(admin_client):
+    """Two custom views with the same exposed method name share a route name,
+    so one link opens the other page. It happened with Usage and Cleanup."""
+    nav = _nav(admin_client.get("/admin/janitor").text)
+    assert nav["Usage"][0].endswith("/admin/usage")
+    assert nav["Cleanup"][0].endswith("/admin/janitor")
+
+
+def test_only_the_page_you_are_on_is_selected(admin_client):
+    for path, selected in (("/admin/janitor", "Cleanup"), ("/admin/usage", "Usage")):
+        nav = _nav(admin_client.get(path).text)
+        active = [name for name, (_href, on) in nav.items() if on]
+        assert active == [selected], (path, active)

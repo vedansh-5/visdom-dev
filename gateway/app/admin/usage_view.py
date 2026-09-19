@@ -173,10 +173,16 @@ class UsageView(BaseView):
         return roles.can_see(request.session.get(ROLE_KEY), "Workspace")
 
     @expose("/usage", methods=["GET"])
-    async def page(self, request: Request):
+    async def usage(self, request: Request):
         """Render the usage page.
 
-        The role check here is load bearing, as on the cleanup page: sqladmin
+        The method name is load bearing. sqladmin names a custom view's route
+        after its exposed method and the sidebar links to that name, so this
+        cannot also be called ``page``, which the cleanup view already uses:
+        the two would share a route name, the Usage link would open Cleanup,
+        and both would show as selected.
+
+        The role check is load bearing too, as on the cleanup page: sqladmin
         applies ``is_accessible`` to the menu entry only, not to an exposed
         route.
         """
