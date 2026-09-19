@@ -156,13 +156,13 @@
         {% endfor %}
       </div>
       {% endif %}
+      {% else %}
+      <div class="ap-empty">Nothing to clean up here.</div>
+      {% endif %}
       {% if section.manage %}
       <div class="ap-purge">
         <a class="ap-manage-link" href="?section={{ section.manage.section }}">{{ section.manage.label }} &rarr;</a>
       </div>
-      {% endif %}
-      {% else %}
-      <div class="ap-empty">Nothing to clean up here.</div>
       {% endif %}
     </div>
     {% endfor %}
