@@ -5,6 +5,7 @@ import { api, useAuth } from '../../context/AuthContext';
 import { cachedGet, invalidate } from '../../utils/requestCache';
 import { parseApiError } from '../../utils/helpers';
 import { supportHref } from '../../utils/supportContact';
+import { formatBytes } from '../../utils/usageFormat';
 
 const PLAN_ICONS = { free: Zap, pro: Sparkles, enterprise: Rocket };
 
@@ -73,6 +74,7 @@ const BillingTab = () => {
         { label: 'Workspaces', ...usage.workspaces },
         { label: 'Team members', ...usage.members },
         { label: 'API keys', ...usage.api_keys },
+        ...(usage.storage ? [{ label: 'Storage', ...usage.storage, format: formatBytes }] : []),
       ]
     : [];
 
@@ -182,7 +184,8 @@ const BillingTab = () => {
               <div className="gc-meter-label">
                 <span>{item.label}</span>
                 <span className={over ? 'gc-text-danger' : ''}>
-                  {item.used.toLocaleString()} / {formatLimit(item.limit)}
+                  {item.format ? item.format(item.used) : item.used.toLocaleString()} /{' '}
+                  {unlimited ? 'Unlimited' : item.format ? item.format(item.limit) : formatLimit(item.limit)}
                 </span>
               </div>
               {!unlimited && (

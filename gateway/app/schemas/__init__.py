@@ -112,6 +112,7 @@ class PlanLimits(BaseModel):
     workspaces: Optional[int] = None
     members: Optional[int] = None
     api_keys: Optional[int] = None
+    storage_mb: Optional[int] = None
 
 
 class PlanResponse(BaseModel):
@@ -132,6 +133,7 @@ class SubscriptionUsage(BaseModel):
     workspaces: UsageMetric
     members: UsageMetric
     api_keys: UsageMetric
+    storage: UsageMetric
 
 
 class SubscriptionResponse(BaseModel):

@@ -13,7 +13,7 @@ from app.config import settings
 from app.dependencies import get_current_user, get_db
 from app.models import User
 from app.schemas import PlanResponse, SubscriptionResponse, SubscriptionUpdate
-from app.usage import usage
+from app.usage import MEGABYTE, storage_used, usage
 
 router = APIRouter(prefix="/billing", tags=["billing"])
 
@@ -36,6 +36,10 @@ def _build_subscription(db: Session, user: User) -> dict:
             "workspaces": {"used": workspaces_used, "limit": limits["workspaces"]},
             "members": {"used": members_used, "limit": limits["members"]},
             "api_keys": {"used": api_keys_used, "limit": limits["api_keys"]},
+            "storage": {
+                "used": storage_used(db, user),
+                "limit": None if limits.get("storage_mb") is None else limits["storage_mb"] * MEGABYTE,
+            },
         },
     }
 
