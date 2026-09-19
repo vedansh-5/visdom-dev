@@ -36,13 +36,13 @@ _SUPPORT_VISIBLE = {
 _VISIBLE = {
     SUPPORT: _SUPPORT_VISIBLE,
     ADMIN: _SUPPORT_VISIBLE,
-    SUPERADMIN: _SUPPORT_VISIBLE | {"AdminUser"},
+    SUPERADMIN: _SUPPORT_VISIBLE | {"AdminUser", "Plan"},
 }
 
 _CHANGEABLE = {
     SUPPORT: {"APIKey", "User", "Workspace", "Membership"},
     ADMIN: {"APIKey", "User", "Workspace", "Membership"},
-    SUPERADMIN: {"APIKey", "User", "Workspace", "Membership", "AdminUser"},
+    SUPERADMIN: {"APIKey", "User", "Workspace", "Membership", "AdminUser", "Plan"},
 }
 
 _REMOVABLE = {
@@ -54,7 +54,7 @@ _REMOVABLE = {
 _ADDABLE = {
     SUPPORT: set(),
     ADMIN: set(),
-    SUPERADMIN: {"AdminUser"},
+    SUPERADMIN: {"AdminUser", "Plan"},
 }
 
 _ENTITLEMENT_FIELDS = {
@@ -72,7 +72,20 @@ _EDITABLE_FIELDS = {
         "Membership": {"role"},
     },
     ADMIN: _ENTITLEMENT_FIELDS,
-    SUPERADMIN: dict(_ENTITLEMENT_FIELDS, AdminUser={"is_active"}),
+    SUPERADMIN: dict(
+        _ENTITLEMENT_FIELDS,
+        AdminUser={"is_active"},
+        Plan={
+            "name",
+            "price",
+            "sort_order",
+            "is_public",
+            "archived_at",
+            "limits",
+            "features",
+            "retention_days",
+        },
+    ),
 }
 
 _SWEEPERS = {SUPPORT, ADMIN, SUPERADMIN}

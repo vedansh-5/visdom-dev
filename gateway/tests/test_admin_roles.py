@@ -88,3 +88,15 @@ def test_privilege_only_grows_up_the_ladder():
         assert roles._CHANGEABLE[lower] <= roles._CHANGEABLE[higher]
         assert roles._REMOVABLE[lower] <= roles._REMOVABLE[higher]
         assert roles._ADDABLE[lower] <= roles._ADDABLE[higher]
+
+
+def test_only_a_superadmin_sees_or_edits_plans():
+    """A plan decides what every account on it gets, so it is not a support or
+    admin decision."""
+    for role in (roles.SUPPORT, roles.ADMIN):
+        assert not roles.can_see(role, "Plan")
+        assert not roles.can_change(role, "Plan")
+        assert not roles.can_add(role, "Plan")
+    assert roles.can_see(roles.SUPERADMIN, "Plan")
+    assert roles.can_add(roles.SUPERADMIN, "Plan")
+    assert "limits" in roles.editable_fields(roles.SUPERADMIN, "Plan")

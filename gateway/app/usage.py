@@ -70,7 +70,7 @@ def usage(db: Session, user: User) -> dict:
 def refuse_if_at_limit(db: Session, user: User, resource: str) -> None:
     """Stop a creation that the account's plan does not allow."""
     tier = user.tier or "free"
-    if not at_limit(tier, resource, COUNTERS[resource](db, user)):
+    if not at_limit(db, tier, resource, COUNTERS[resource](db, user)):
         return
     raise HTTPException(
         status_code=status.HTTP_402_PAYMENT_REQUIRED,

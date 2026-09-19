@@ -635,3 +635,157 @@ def test_a_key_name_cannot_reach_the_pages_javascript(admin_client):
     handlers = [html.unescape(h) for h in re.findall(r'onsubmit="([^"]*)"', page)]
     assert handlers
     assert not any("alert(1)" in handler for handler in handlers)
+
+
+def _plan_form(plan_id="team", limits='{"workspaces": 3, "members": 5, "api_keys": 4}', **extra):
+    form = {
+        "id": plan_id,
+        "name": "Team",
+        "price": "12",
+        "sort_order": "5",
+        "is_public": "y",
+        "limits": limits,
+        "features": '["3 workspaces"]',
+        "retention_days": "30",
+    }
+    form.update(extra)
+    return form
+
+
+def test_a_superadmin_can_add_a_plan(admin_client):
+    from app.models import Plan
+
+    made = admin_client.post("/admin/plan/create", data=_plan_form(), follow_redirects=False)
+    assert made.status_code in (302, 303), made.text
+
+    admin_client.staff_db.expire_all()
+    plan = admin_client.staff_db.get(Plan, "team")
+    assert plan.limits == {"workspaces": 3, "members": 5, "api_keys": 4}
+    assert plan.features == ["3 workspaces"]
+
+
+def test_a_plan_with_a_missing_limit_is_refused(admin_client):
+    from app.models import Plan
+
+    refused = admin_client.post(
+        "/admin/plan/create",
+        data=_plan_form("gappy", limits='{"workspaces": 3, "members": 5}'),
+        follow_redirects=False,
+    )
+    assert refused.status_code not in (302, 303)
+    admin_client.staff_db.expire_all()
+    assert admin_client.staff_db.get(Plan, "gappy") is None
+
+
+def test_a_plan_id_must_be_a_slug(admin_client):
+    from app.models import Plan
+
+    refused = admin_client.post(
+        "/admin/plan/create", data=_plan_form("Not A Slug!"), follow_redirects=False
+    )
+    assert refused.status_code not in (302, 303)
+    admin_client.staff_db.expire_all()
+    assert admin_client.staff_db.query(Plan).filter(Plan.name == "Team").count() == 0
+
+
+def test_editing_a_plan_changes_its_limits_but_never_its_id(admin_client):
+    from app.models import Plan
+
+    admin_client.post(
+        "/admin/plan/edit/pro",
+        data={
+            "id": "renamed",
+            "name": "Pro",
+            "price": "29",
+            "sort_order": "1",
+            "is_public": "y",
+            "limits": '{"workspaces": 15, "members": null, "api_keys": 20}',
+            "features": "[]",
+            "retention_days": "90",
+        },
+        follow_redirects=False,
+    )
+    admin_client.staff_db.expire_all()
+    assert admin_client.staff_db.get(Plan, "renamed") is None
+    assert admin_client.staff_db.get(Plan, "pro").limits["workspaces"] == 15
+
+
+def test_the_plan_dropdown_marks_hidden_and_archived_plans(admin_client):
+    import datetime
+
+    from app.models import Plan, User
+
+    db = admin_client.staff_db
+    db.add(Plan(id="internal", name="Internal", is_public=False, limits={}, features=[]))
+    db.add(
+        Plan(
+            id="legacy",
+            name="Legacy",
+            archived_at=datetime.datetime.now(datetime.timezone.utc),
+            limits={},
+            features=[],
+        )
+    )
+    user = User(id=uuid.uuid4(), email="picker@example.com", username="picker", password_hash="x")
+    db.add(user)
+    db.commit()
+
+    page = admin_client.get(f"/admin/user/edit/{user.id}").text
+    assert "Internal (hidden)" in page
+    assert "Legacy (archived)" in page
+
+
+def test_an_account_cannot_be_moved_onto_an_archived_plan(admin_client):
+    import datetime
+
+    from app.models import Plan, User
+
+    db = admin_client.staff_db
+    db.add(
+        Plan(
+            id="legacy",
+            name="Legacy",
+            archived_at=datetime.datetime.now(datetime.timezone.utc),
+            limits={},
+            features=[],
+        )
+    )
+    user = User(id=uuid.uuid4(), email="mover@example.com", username="mover", password_hash="x", tier="free")
+    db.add(user)
+    db.commit()
+
+    admin_client.post(
+        f"/admin/user/edit/{user.id}", data={"is_active": "y", "tier": "legacy"}, follow_redirects=False
+    )
+    db.expire_all()
+    assert db.get(User, user.id).tier == "free"
+
+
+def test_an_account_already_on_an_archived_plan_can_still_be_suspended(admin_client):
+    """Saving for an unrelated reason must not be refused for a plan nobody is
+    changing."""
+    import datetime
+
+    from app.models import Plan, User
+
+    db = admin_client.staff_db
+    db.add(
+        Plan(
+            id="legacy",
+            name="Legacy",
+            archived_at=datetime.datetime.now(datetime.timezone.utc),
+            limits={},
+            features=[],
+        )
+    )
+    user = User(
+        id=uuid.uuid4(), email="stayer@example.com", username="stayer", password_hash="x", tier="legacy"
+    )
+    db.add(user)
+    db.commit()
+
+    admin_client.post(f"/admin/user/edit/{user.id}", data={"tier": "legacy"}, follow_redirects=False)
+    db.expire_all()
+    record = db.get(User, user.id)
+    assert record.is_active is False
+    assert record.tier == "legacy"

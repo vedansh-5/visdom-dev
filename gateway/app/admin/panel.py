@@ -22,6 +22,7 @@ from starlette.exceptions import HTTPException
 from starlette.requests import Request
 from starlette.responses import RedirectResponse, Response
 
+from app import billing
 from app.admin import activity, janitor, roles
 from app.admin.audit import StaffAuditBackend
 from app.config import settings
@@ -32,6 +33,7 @@ from app.models import (
     APIKey,
     APIKeyWorkspace,
     Membership,
+    Plan,
     SharedLink,
     User,
     Workspace,
@@ -177,6 +179,28 @@ def _to_the_minute(field, empty=""):
     return render
 
 
+def _tier_choices():
+    """Every plan, marked when it is hidden or archived.
+
+    Archived plans are offered so an account already on one still shows its
+    plan; moving an account onto one is refused when the form is saved.
+    """
+    db = SessionLocal()
+    try:
+        plans = db.query(Plan).order_by(Plan.sort_order, Plan.id).all()
+    finally:
+        db.close()
+
+    def label(plan):
+        if plan.archived_at is not None:
+            return f"{plan.name} (archived)"
+        if not plan.is_public:
+            return f"{plan.name} (hidden)"
+        return plan.name
+
+    return [(plan.id, label(plan)) for plan in plans]
+
+
 class UserAdmin(ChangeableView, model=User):
     name = "User"
     name_plural = "Users"
@@ -205,6 +229,33 @@ class UserAdmin(ChangeableView, model=User):
         User.last_login_at: _to_the_minute("last_login_at", "never"),
     }
     form_columns = [User.is_active, User.tier]
+    form_include_pk = True
+    form_overrides = {"tier": wtforms.SelectField}
+    form_args = {"tier": {"label": "Plan", "choices": lambda: _tier_choices()}}
+
+    async def on_model_change(
+        self, data: dict, model, is_created: bool, request: Request
+    ) -> None:
+        """Refuse moving an account onto a plan staff may not assign.
+
+        Only a change is checked. An account already on an archived plan keeps
+        it, so saving that account for an unrelated reason, such as suspending
+        it, must not be refused for a plan nobody is changing.
+        """
+        await super().on_model_change(data, model, is_created, request)
+        tier = data.get("tier")
+        if tier is None or tier == model.tier:
+            return
+        db = SessionLocal()
+        try:
+            allowed = billing.assignable(db, tier)
+        finally:
+            db.close()
+        if not allowed:
+            raise HTTPException(
+                status_code=400,
+                detail=f"{tier} is archived or does not exist, so no account can be put on it.",
+            )
 
 
 def _email_of(user):
@@ -718,6 +769,166 @@ def _other_active_superadmins(db, admin):
     )
 
 
+def _plan_standing(model, _attr):
+    if model.archived_at is not None:
+        return "archived"
+    return "public" if model.is_public else "hidden"
+
+
+def _plan_limits(model, _attr):
+    limits = model.limits or {}
+
+    def one(key, singular, plural):
+        value = limits.get(key)
+        if value is None:
+            return f"\u221e {plural}"
+        return f"{value} {singular if value == 1 else plural}"
+
+    return ", ".join(
+        one(key, singular, plural)
+        for key, singular, plural in (
+            ("workspaces", "workspace", "workspaces"),
+            ("members", "member", "members"),
+            ("api_keys", "API key", "API keys"),
+        )
+    )
+
+
+class PlanAdmin(RoleScopedView, model=Plan):
+    """Subscription tiers, edited here rather than in code.
+
+    Superadmin only: a change here is a change to what every account on that
+    tier gets, the moment it is saved. A plan is never deleted but archived,
+    which stops anyone new being put on it while leaving accounts already on it
+    exactly as they were. Limits are checked when saved rather than trusted, so
+    a missing or misspelt marker is refused instead of being read as unlimited.
+    """
+
+    name = "Plan"
+    name_plural = "Plans"
+    icon = "fa-solid fa-layer-group"
+    category = "Billing"
+    category_icon = "fa-solid fa-credit-card"
+    can_create = True
+    can_edit = True
+    form_include_pk = True
+    column_list = [
+        Plan.id,
+        Plan.name,
+        Plan.price,
+        "standing",
+        Plan.limits,
+        Plan.retention_days,
+    ]
+    column_labels = {"standing": "Standing", "retention_days": "Retention (days)"}
+    column_formatters = {"standing": _plan_standing, Plan.limits: _plan_limits}
+    column_default_sort = (Plan.sort_order, False)
+    form_columns = [
+        Plan.id,
+        Plan.name,
+        Plan.price,
+        Plan.sort_order,
+        Plan.is_public,
+        Plan.archived_at,
+        Plan.limits,
+        Plan.features,
+        Plan.retention_days,
+    ]
+    form_create_rules = [
+        "id",
+        "name",
+        "price",
+        "sort_order",
+        "is_public",
+        "limits",
+        "features",
+        "retention_days",
+    ]
+    form_edit_rules = [
+        "name",
+        "price",
+        "sort_order",
+        "is_public",
+        "archived_at",
+        "limits",
+        "features",
+        "retention_days",
+    ]
+    form_args = {
+        "id": {"description": "Lowercase letters, numbers and hyphens. Cannot be changed later."},
+        "price": {"description": "Monthly price in whole units. Leave empty to show 'Custom'."},
+        "is_public": {
+            "label": "Public",
+            "description": "Shown on the pricing page and pickable by users. Hidden plans are assigned by staff.",
+        },
+        "archived_at": {
+            "label": "Archived",
+            "description": "Set to retire the plan. Accounts on it keep it; nobody new can be put on it.",
+        },
+        "limits": {
+            "default": dict.fromkeys(billing.LIMIT_KEYS, 0),
+            "description": "Every limit must be set; null means unlimited.",
+        },
+        "features": {"default": [], "description": "The bullet points on the pricing page."},
+        "retention_days": {"description": "Leave empty for unlimited."},
+    }
+
+    async def check_can_create(self, request: Request) -> bool:
+        return roles.can_add(request.session.get(ROLE_KEY), self.model.__name__)
+
+    async def check_can_edit(self, request: Request, model) -> bool:
+        return roles.can_change(request.session.get(ROLE_KEY), self.model.__name__)
+
+    async def on_model_change(
+        self, data: dict, model, is_created: bool, request: Request
+    ) -> None:
+        """Check the whole plan, and keep its id fixed once made.
+
+        The id is what accounts point at, so changing it would move every
+        account on the plan onto whatever the new id named.
+        """
+        role = request.session.get(ROLE_KEY)
+        if is_created:
+            if not roles.can_add(role, self.model.__name__):
+                raise HTTPException(status_code=403, detail="Your role cannot add plans.")
+            plan_id = (data.get("id") or "").strip().lower()
+            if not billing.PLAN_ID_PATTERN.match(plan_id):
+                raise HTTPException(
+                    status_code=400,
+                    detail="The id must be lowercase letters, numbers and hyphens, up to 40 characters.",
+                )
+            db = SessionLocal()
+            try:
+                taken = db.get(Plan, plan_id) is not None
+            finally:
+                db.close()
+            if taken:
+                raise HTTPException(status_code=400, detail=f"A plan called {plan_id} already exists.")
+            data["id"] = plan_id
+        else:
+            allowed = roles.editable_fields(role, self.model.__name__)
+            if not allowed:
+                raise HTTPException(status_code=403, detail="Your role cannot change plans.")
+            data.pop("id", None)
+            for key in list(data):
+                if key not in allowed:
+                    data.pop(key)
+
+        if not (data.get("name") or "").strip() and (is_created or "name" in data):
+            raise HTTPException(status_code=400, detail="A plan needs a name.")
+        try:
+            if is_created or "limits" in data:
+                data["limits"] = billing.validate_limits(data.get("limits"))
+            if is_created or "features" in data:
+                data["features"] = billing.validate_features(data.get("features") or [])
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        for key in ("price", "retention_days"):
+            value = data.get(key)
+            if value is not None and value < 0:
+                raise HTTPException(status_code=400, detail=f"{key} cannot be negative.")
+
+
 class AdminUserAdmin(RoleScopedView, model=AdminUser):
     """Staff accounts, and the one thing in the panel staff may create.
 
@@ -1092,6 +1303,7 @@ VIEWS = (
     WorkspaceInviteAdmin,
     SharedLinkAdmin,
     AdminUserAdmin,
+    PlanAdmin,
     AdminActionAdmin,
 )
 
