@@ -138,6 +138,7 @@ class SubscriptionResponse(BaseModel):
     tier: str
     plan: PlanResponse
     usage: SubscriptionUsage
+    support_contact: Optional[str] = None
 
 
 class SubscriptionUpdate(BaseModel):

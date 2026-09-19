@@ -1,9 +1,10 @@
 /* Copyright 2017-present, The Visdom Authors */
 import { useCallback, useEffect, useState } from 'react';
-import { CheckCircle, CreditCard, Rocket, Sparkles, Zap } from 'lucide-react';
+import { CheckCircle, CreditCard, LifeBuoy, Rocket, Sparkles, Zap } from 'lucide-react';
 import { api, useAuth } from '../../context/AuthContext';
 import { cachedGet, invalidate } from '../../utils/requestCache';
 import { parseApiError } from '../../utils/helpers';
+import { supportHref } from '../../utils/supportContact';
 
 const PLAN_ICONS = { free: Zap, pro: Sparkles, enterprise: Rocket };
 
@@ -41,6 +42,7 @@ const BillingTab = () => {
   }, [load]);
 
   const currentTier = subscription?.tier || user?.tier || 'free';
+  const contactHref = supportHref(subscription?.support_contact);
 
   const handleSwitch = async (tier) => {
     setSwitchingTo(tier);
@@ -140,6 +142,28 @@ const BillingTab = () => {
         <div className="gc-text-desc-muted gc-mt-sm">
           Payment processing isn't wired up yet — switching a plan updates your tier immediately for now.
         </div>
+      </section>
+
+      <section className="gc-panel">
+        <div className="gc-panel-header">
+          <span className="gc-panel-title">
+            <LifeBuoy size={16} /> Need a custom plan?
+          </span>
+        </div>
+        <div className="gc-text-desc-muted">
+          If none of these fit, for example you need more workspaces or members than a plan
+          allows, the Visdom team can set up a plan for you.
+        </div>
+        {contactHref && (
+          <a
+            className="gc-btn gc-btn-primary gc-mt-sm"
+            href={contactHref}
+            target={contactHref.startsWith('mailto:') ? undefined : '_blank'}
+            rel="noreferrer"
+          >
+            Contact us
+          </a>
+        )}
       </section>
 
       <section className="gc-panel">

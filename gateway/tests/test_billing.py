@@ -320,3 +320,20 @@ def test_an_untouched_features_box_saves_as_no_features():
     assert validate_features({}) == []
     assert validate_features(None) == []
     assert validate_features(["  one  ", ""]) == ["one"]
+
+
+def test_the_subscription_says_where_to_ask_for_a_custom_plan(client, make_user, monkeypatch):
+    from app.config import settings
+
+    user = make_user()
+    monkeypatch.setattr(settings, "SUPPORT_CONTACT", "  team@example.org  ")
+    shown = client.get(f"{BILLING}/subscription", headers=user["headers"]).json()
+    assert shown["support_contact"] == "team@example.org"
+
+
+def test_no_contact_is_offered_until_one_is_configured(client, make_user, monkeypatch):
+    from app.config import settings
+
+    user = make_user()
+    monkeypatch.setattr(settings, "SUPPORT_CONTACT", "")
+    assert client.get(f"{BILLING}/subscription", headers=user["headers"]).json()["support_contact"] is None
