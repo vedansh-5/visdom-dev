@@ -631,18 +631,59 @@ def test_a_key_that_is_in_use_cannot_be_revoked_from_the_cleanup_page(admin_clie
 
 
 def test_a_key_name_cannot_reach_the_pages_javascript(admin_client):
-    """Key names are typed by users; the confirmation prompt must not quote one."""
+    """Key names are typed by users; they reach the confirmation only as text."""
     db = admin_client.staff_db
-    _key(db, _owner(db), "x');alert(1);//")
+    _key(db, _owner(db), '"><script>alert(1)</script>')
     db.commit()
 
-    import html
+    page = admin_client.get("/admin/janitor?section=keys").text
+    assert "Revoke &#34;&gt;&lt;script&gt;alert(1)&lt;/script&gt;?" in page
+    assert "<script>alert(1)" not in page
+
+
+def _flashes(page):
+    import json
     import re
 
-    page = admin_client.get("/admin/janitor?section=keys").text
-    handlers = [html.unescape(h) for h in re.findall(r'on(?:submit|click)="([^"]*)"', page)]
-    assert handlers
-    assert not any("alert(1)" in handler for handler in handlers)
+    found = re.search(r'<script type="application/json" id="ap-flash">(.*?)</script>', page, re.S)
+    assert found, "the page carries no notifications block"
+    return json.loads(found.group(1))
+
+
+def test_an_action_reports_back_as_a_notification_of_its_kind(admin_client):
+    done = admin_client.post("/admin/janitor?section=keys", data={"intent": "revoke"}, follow_redirects=False)
+    assert "notice_kind=error" in done.headers["location"]
+
+    page = admin_client.get(done.headers["location"]).text
+    assert _flashes(page) == [{"kind": "error", "message": "Select at least one key first."}]
+
+
+def test_a_notice_cannot_break_out_of_the_notifications_block(admin_client):
+    sneaky = "</script><script>alert(1)</script>"
+    page = admin_client.get("/admin/janitor", params={"notice": sneaky, "notice_kind": "success"}).text
+    assert "<script>alert(1)" not in page
+    assert _flashes(page) == [{"kind": "success", "message": sneaky}]
+
+
+def test_a_page_with_nothing_to_report_shows_no_notification(admin_client):
+    assert _flashes(admin_client.get("/admin/janitor").text) == []
+
+
+def test_no_admin_page_falls_back_to_the_browsers_own_dialogs():
+    import pathlib
+    import re
+
+    templates = pathlib.Path(panel.__file__).parent / "templates"
+    for template in templates.rglob("*.html"):
+        text = template.read_text()
+        assert not re.search(r"(?<![\w.])confirm\(", text), template.name
+        assert not re.search(r"\son(?:click|submit|change)=", text), template.name
+
+
+def test_deleting_a_row_asks_in_the_consoles_own_dialog(admin_client):
+    page = admin_client.get("/admin/membership/list").text
+    assert 'class="modal-content ap-confirm"' in page
+    assert 'id="modal-delete-button"' in page
 
 
 def _plan_form(plan_id="team", limits='{"workspaces": 3, "members": 5, "api_keys": 4, "storage_mb": 2048}', **extra):
