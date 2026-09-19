@@ -554,13 +554,18 @@ def _owner(db):
     return user
 
 
-def test_the_cleanup_page_offers_to_revoke_an_unused_key(admin_client):
+def test_the_cleanup_page_links_to_the_unused_keys_page(admin_client):
     db = admin_client.staff_db
     _key(db, _owner(db), "forgotten")
     db.commit()
 
-    page = admin_client.get("/admin/janitor")
-    assert "Revoke forgotten" in page.text
+    cleanup = admin_client.get("/admin/janitor").text
+    assert 'href="?section=keys"' in cleanup
+    assert "Revoke forgotten" not in cleanup
+
+    keys = admin_client.get("/admin/janitor?section=keys").text
+    assert "forgotten" in keys
+    assert 'name="revoke_one"' in keys
 
 
 def test_revoking_one_unused_key_switches_it_off_and_records_it(admin_client):
@@ -598,7 +603,7 @@ def test_revoke_all_switches_off_every_unused_key_and_nothing_else(admin_client)
     brand_new = _key(db, owner, "brand-new", age_days=0)
     db.commit()
 
-    admin_client.post("/admin/janitor", data={"intent": "revoke"}, follow_redirects=False)
+    admin_client.post("/admin/janitor", data={"intent": "revoke_all"}, follow_redirects=False)
 
     db.expire_all()
     assert all(db.get(APIKey, key.id).is_active is False for key in stale)
@@ -634,8 +639,8 @@ def test_a_key_name_cannot_reach_the_pages_javascript(admin_client):
     import html
     import re
 
-    page = admin_client.get("/admin/janitor").text
-    handlers = [html.unescape(h) for h in re.findall(r'onsubmit="([^"]*)"', page)]
+    page = admin_client.get("/admin/janitor?section=keys").text
+    handlers = [html.unescape(h) for h in re.findall(r'on(?:submit|click)="([^"]*)"', page)]
     assert handlers
     assert not any("alert(1)" in handler for handler in handlers)
 
@@ -895,3 +900,188 @@ def test_only_the_page_you_are_on_is_selected(admin_client):
         nav = _nav(admin_client.get(path).text)
         active = [name for name, (_href, on) in nav.items() if on]
         assert active == [selected], (path, active)
+
+
+KEYS_PAGE = "/admin/janitor?section=keys"
+
+
+def _sent_to(monkeypatch, fail_for=()):
+    from app.admin import panel as admin_panel
+
+    sent = []
+
+    def fake_send(to, subject, body):
+        if to in fail_for:
+            return False
+        sent.append((to, subject, body))
+        return True
+
+    monkeypatch.setattr(admin_panel.outbound, "configured", lambda: True)
+    monkeypatch.setattr(admin_panel.outbound, "send", fake_send)
+    return sent
+
+
+def test_the_keys_page_says_where_each_key_stands(admin_client):
+    db = admin_client.staff_db
+    owner = _owner(db)
+    _key(db, owner, "never-touched")
+    db.commit()
+
+    page = admin_client.get(KEYS_PAGE).text
+    assert "never-touched" in page
+    assert owner.email in page
+    assert "never used" in page
+
+
+def test_cleanup_stays_selected_on_the_keys_page(admin_client):
+    nav = _nav(admin_client.get(KEYS_PAGE).text)
+    assert [name for name, (_href, on) in nav.items() if on] == ["Cleanup"]
+
+
+def test_a_row_button_revokes_only_that_key(admin_client):
+    from app.models import APIKey
+
+    db = admin_client.staff_db
+    owner = _owner(db)
+    target, other = _key(db, owner, "target"), _key(db, owner, "other")
+    db.commit()
+
+    done = admin_client.post(
+        KEYS_PAGE,
+        data={"revoke_one": str(target.id), "key_ids": [str(target.id), str(other.id)]},
+        follow_redirects=False,
+    )
+    assert "section=keys" in done.headers["location"]
+    db.expire_all()
+    assert db.get(APIKey, target.id).is_active is False
+    assert db.get(APIKey, other.id).is_active is True
+
+
+def test_revoke_with_nothing_selected_revokes_nothing(admin_client):
+    """The bulk button says 'selected'; with none selected it must not fall
+    through to revoking everything."""
+    from app.models import APIKey
+
+    db = admin_client.staff_db
+    keys = [_key(db, _owner(db), f"keep-{n}") for n in range(2)]
+    db.commit()
+
+    done = admin_client.post(KEYS_PAGE, data={"intent": "revoke"}, follow_redirects=False)
+    assert "Select+at+least+one+key" in done.headers["location"]
+    db.expire_all()
+    assert all(db.get(APIKey, key.id).is_active for key in keys)
+
+
+def test_revoking_the_selected_keys_leaves_the_rest(admin_client):
+    from app.models import APIKey
+
+    db = admin_client.staff_db
+    owner = _owner(db)
+    a, b, c = (_key(db, owner, name) for name in ("a", "b", "c"))
+    db.commit()
+
+    admin_client.post(
+        KEYS_PAGE, data={"intent": "revoke", "key_ids": [str(a.id), str(b.id)]}, follow_redirects=False
+    )
+    db.expire_all()
+    assert [db.get(APIKey, k.id).is_active for k in (a, b, c)] == [False, False, True]
+
+
+def test_notifying_is_refused_while_email_is_not_set_up(admin_client, monkeypatch):
+    from app.admin import panel as admin_panel
+    from app.models import APIKey
+
+    monkeypatch.setattr(admin_panel.outbound, "configured", lambda: False)
+    db = admin_client.staff_db
+    key = _key(db, _owner(db), "quiet")
+    db.commit()
+
+    done = admin_client.post(KEYS_PAGE, data={"notify_one": str(key.id)}, follow_redirects=False)
+    assert "Email+is+not+set+up" in done.headers["location"]
+    db.expire_all()
+    assert db.get(APIKey, key.id).owner_notified_at is None
+
+
+def test_each_owner_gets_one_email_listing_all_their_keys(admin_client, monkeypatch):
+    import datetime
+
+    from app.models import APIKey
+
+    sent = _sent_to(monkeypatch)
+    db = admin_client.staff_db
+    owner = _owner(db)
+    first, second = _key(db, owner, "first-key"), _key(db, owner, "second-key")
+    db.commit()
+
+    admin_client.post(
+        KEYS_PAGE,
+        data={"intent": "notify", "key_ids": [str(first.id), str(second.id)]},
+        follow_redirects=False,
+    )
+    assert len(sent) == 1
+    to, subject, body = sent[0]
+    assert to == owner.email
+    assert "first-key" in body and "second-key" in body
+
+    db.expire_all()
+    marked = db.get(APIKey, first.id)
+    deadline = marked.revoke_after.replace(tzinfo=marked.revoke_after.tzinfo or datetime.timezone.utc)
+    days = (deadline - datetime.datetime.now(datetime.timezone.utc)).days
+    assert marked.owner_notified_at is not None
+    assert 29 <= days <= 30
+
+
+def test_a_key_is_only_marked_once_its_owners_email_went_out(admin_client, monkeypatch):
+    """Otherwise a failed send could end with a key revoked without warning."""
+    from app.models import APIKey
+
+    db = admin_client.staff_db
+    reachable, unreachable = _owner(db), _owner(db)
+    good, bad = _key(db, reachable, "good"), _key(db, unreachable, "bad")
+    db.commit()
+    _sent_to(monkeypatch, fail_for=(unreachable.email,))
+
+    done = admin_client.post(
+        KEYS_PAGE, data={"intent": "notify", "key_ids": [str(good.id), str(bad.id)]}, follow_redirects=False
+    )
+    assert "Could+not+email" in done.headers["location"]
+    db.expire_all()
+    assert db.get(APIKey, good.id).owner_notified_at is not None
+    assert db.get(APIKey, bad.id).owner_notified_at is None
+
+
+def test_only_keys_past_their_notice_are_revoked_as_due(admin_client):
+    import datetime
+
+    from app.models import APIKey
+
+    now = datetime.datetime.now(datetime.timezone.utc)
+    db = admin_client.staff_db
+    owner = _owner(db)
+    overdue, waiting = _key(db, owner, "overdue"), _key(db, owner, "waiting")
+    day = datetime.timedelta(days=1)
+    overdue.owner_notified_at, overdue.revoke_after = now - 31 * day, now - day
+    waiting.owner_notified_at, waiting.revoke_after = now - 5 * day, now + 25 * day
+    db.commit()
+
+    assert "due for revocation" in admin_client.get(KEYS_PAGE).text
+    admin_client.post(KEYS_PAGE, data={"intent": "revoke_due"}, follow_redirects=False)
+    db.expire_all()
+    assert db.get(APIKey, overdue.id).is_active is False
+    assert db.get(APIKey, waiting.id).is_active is True
+
+
+def test_using_a_key_after_its_notice_cancels_the_notice():
+    import datetime
+    import types
+
+    from app.admin import janitor
+
+    now = datetime.datetime.now(datetime.timezone.utc)
+    key = types.SimpleNamespace(
+        owner_notified_at=now - datetime.timedelta(days=10),
+        last_used_at=now - datetime.timedelta(days=2),
+        revoke_after=now - datetime.timedelta(days=1),
+    )
+    assert janitor.notice_is_current(key) is False
+    assert janitor.is_due(key, now) is False

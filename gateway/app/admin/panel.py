@@ -6,6 +6,7 @@
 
 """The staff admin panel, mounted on its own route with its own login."""
 
+import asyncio
 import base64
 import logging
 import os
@@ -23,6 +24,7 @@ from starlette.requests import Request
 from starlette.responses import RedirectResponse, Response
 
 from app import billing
+from app import email as outbound
 from app.admin import activity, janitor, roles
 from app.admin.audit import StaffAuditBackend
 from app.config import settings
@@ -1087,12 +1089,13 @@ class JanitorView(BaseView):
 
     @expose("/janitor", methods=["GET", "POST"])
     async def page(self, request: Request):
-        """Render the cleanup page, and run the purge on POST.
+        """Render the cleanup page, or one of its sections, and act on POST.
 
-        One route taking both methods, rather than a second route for the purge:
+        One route taking both methods and both pages, rather than a route each:
         sqladmin names a custom view's route after the exposed function and the
         sidebar links to that name, so a second exposed method would rename the
-        view out from under its own menu entry.
+        view out from under its own menu entry. A section is chosen with
+        ``?section=``, which also keeps Cleanup selected in the sidebar.
 
         The role check below is load bearing and must not be removed. sqladmin
         applies ``is_accessible`` to the menu entry only, not to an exposed
@@ -1102,44 +1105,107 @@ class JanitorView(BaseView):
         if not self._allowed(request):
             return Response("Forbidden", status_code=403)
 
+        section = request.query_params.get("section")
         if request.method == "POST":
-            form = await request.form()
-            act = self._revoke if form.get("intent") == "revoke" else self._purge
-            return RedirectResponse(
-                request.url.replace(query=urlencode({"notice": await act(request)})),
-                status_code=303,
-            )
+            query = {"notice": await self._act(request)}
+            if section:
+                query["section"] = section
+            return RedirectResponse(request.url.replace(query=urlencode(query)), status_code=303)
 
         role = request.session.get(ROLE_KEY)
+        may_revoke = "is_active" in roles.editable_fields(role, "APIKey")
+        if section == "keys":
+            return await self._keys_page(request, may_revoke)
         return await self.templates.TemplateResponse(
             request,
             self.template,
             {
                 "notice": request.query_params.get("notice"),
                 "may_purge": role == roles.SUPERADMIN,
-                "may_revoke": "is_active" in roles.editable_fields(role, "APIKey"),
             },
         )
 
-    async def _revoke(self, request: Request):
-        """Switch off unused API keys, one named key or every one listed.
+    async def _keys_page(self, request: Request, may_revoke: bool):
+        now = utcnow()
+        db = SessionLocal()
+        try:
+            rows = [
+                {
+                    "id": str(key.id),
+                    "name": key.name,
+                    "owner": key.owner.email if key.owner else "unknown",
+                    "created": key.created_at,
+                    "last_used": key.last_used_at,
+                    "standing": janitor.key_standing(key, now),
+                    "due": janitor.is_due(key, now),
+                    "told": janitor.notice_is_current(key),
+                }
+                for key, _why in janitor.unused_keys(db)
+            ]
+        finally:
+            db.close()
+        return await self.templates.TemplateResponse(
+            request,
+            "sqladmin/janitor_keys.html",
+            {
+                "notice": request.query_params.get("notice"),
+                "rows": rows,
+                "due_count": sum(1 for row in rows if row["due"]),
+                "may_revoke": may_revoke,
+                "email_ready": outbound.configured(),
+                "stale_days": janitor.STALE_KEY_DAYS,
+                "notice_days": janitor.NOTICE_DAYS,
+            },
+        )
+
+    async def _act(self, request: Request):
+        """Work out which action a submitted form asked for, and run it."""
+        form = await request.form()
+        if form.get("revoke_one"):
+            return await self._revoke(request, [str(form["revoke_one"])])
+        if form.get("notify_one"):
+            return await self._notify(request, [str(form["notify_one"])])
+        intent = form.get("intent")
+        chosen = [str(key_id) for key_id in form.getlist("key_ids")]
+        if intent == "revoke":
+            single = str(form.get("key_id") or "")
+            if not chosen and not single:
+                return "Select at least one key first."
+            return await self._revoke(request, chosen or [single])
+        if intent == "revoke_all":
+            return await self._revoke(request, None)
+        if intent == "notify":
+            return await self._notify(request, chosen)
+        if intent == "revoke_due":
+            db = SessionLocal()
+            try:
+                due = janitor.due_key_ids(db)
+            finally:
+                db.close()
+            if not due:
+                return "No key is past its notice yet."
+            return await self._revoke(request, due)
+        return await self._purge(request)
+
+    @staticmethod
+    def _may_touch_keys(request: Request) -> bool:
+        return "is_active" in roles.editable_fields(request.session.get(ROLE_KEY), "APIKey")
+
+    async def _revoke(self, request: Request, key_ids):
+        """Switch off unused API keys: the ones named, or every one listed.
 
         Open to any role that may switch a key off from the API keys view, since
         it is the same change made from a different page. Which keys count as
-        unused is worked out again rather than taken from the form.
+        unused is worked out again rather than taken from the form, so a key
+        used since the page loaded is left alone.
         """
-        role = request.session.get(ROLE_KEY)
-        if "is_active" not in roles.editable_fields(role, "APIKey"):
+        if not self._may_touch_keys(request):
             return "Your role cannot revoke keys."
-
-        form = await request.form()
-        key_id = str(form.get("key_id") or "")
         db = SessionLocal()
         try:
-            revoked = janitor.revoke_unused_keys(db, [key_id] if key_id else None)
+            revoked = janitor.revoke_unused_keys(db, key_ids)
         finally:
             db.close()
-
         for revoked_id, _name in revoked:
             _record_action(
                 request, "update", "APIKey", revoked_id,
@@ -1149,6 +1215,43 @@ class JanitorView(BaseView):
             return "Nothing was revoked. The key may have been used since the page loaded."
         count = len(revoked)
         return f"Revoked {count} unused key{'' if count == 1 else 's'}."
+
+    async def _notify(self, request: Request, key_ids):
+        """Email the owners of these unused keys that they will be revoked.
+
+        A key only counts as warned once its owner's message was accepted by the
+        relay, so a failure here can never lead to a key revoked without notice.
+        """
+        if not self._may_touch_keys(request):
+            return "Your role cannot notify key owners."
+        if not outbound.configured():
+            return "Email is not set up yet, so no owner was told and nothing changed."
+        if not key_ids:
+            return "Select at least one key first."
+
+        def warn():
+            db = SessionLocal()
+            try:
+                return janitor.notify_owners(db, key_ids, outbound.send)
+            finally:
+                db.close()
+
+        warned, unreachable = await asyncio.to_thread(warn)
+        for warned_id, _name in warned:
+            _record_action(
+                request, "notify", "APIKey", warned_id,
+                {"revoke_after_days": janitor.NOTICE_DAYS},
+            )
+        parts = []
+        if warned:
+            count = len(warned)
+            parts.append(
+                f"Told the owners of {count} key{'' if count == 1 else 's'}; "
+                f"they can be revoked after {janitor.NOTICE_DAYS} days."
+            )
+        if unreachable:
+            parts.append("Could not email " + ", ".join(sorted(unreachable)) + "; their keys were not marked.")
+        return " ".join(parts) or "Nothing was sent. The keys may have been used since the page loaded."
 
     async def _purge(self, request: Request):
         """Remove one workspace that has served its time in the trash.

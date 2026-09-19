@@ -35,6 +35,7 @@ STALE_KEY_DAYS = 90
 # How long a workspace sits in the trash before this page starts saying it is
 # due. Nothing here purges anything, so this only decides when to mention it.
 TRASH_DAYS = 30
+NOTICE_DAYS = 30
 
 
 def _aware(moment):
@@ -111,6 +112,90 @@ def revoke_unused_keys(db, key_ids=None):
     if revoked:
         db.commit()
     return revoked
+
+
+def notice_is_current(key):
+    """Whether the owner was warned about this key and has not used it since.
+
+    A key used after its owner was warned has earned its keep, so the warning no
+    longer counts; if it falls unused again it needs a fresh one.
+    """
+    notified = _aware(key.owner_notified_at)
+    if notified is None:
+        return False
+    used = _aware(key.last_used_at)
+    return used is None or used < notified
+
+
+def key_standing(key, now=None):
+    """Where an unused key stands, as a short phrase for the page."""
+    now = now or utcnow()
+    if notice_is_current(key):
+        deadline = _aware(key.revoke_after)
+        if deadline is not None and deadline <= now:
+            return "due for revocation"
+        return f"owner told, revoke after {deadline:%-d %b}" if deadline else "owner told"
+    used = _aware(key.last_used_at)
+    return "never used" if used is None else f"last used {used.date()}"
+
+
+def is_due(key, now=None):
+    now = now or utcnow()
+    deadline = _aware(key.revoke_after)
+    return notice_is_current(key) and deadline is not None and deadline <= now
+
+
+def notice_email(owner_email, keys, deadline):
+    """The warning an owner gets: which keys, and the date they go."""
+    lines = "\n".join(f"  - {key.name} (created {key.created_at:%Y-%m-%d})" for key in keys)
+    when = f"{deadline:%-d %B %Y}"
+    return (
+        f"Your unused Visdom API keys will be switched off on {when}",
+        (
+            "Hello,\n\n"
+            "These API keys on your Visdom account have not been used in a while:\n\n"
+            f"{lines}\n\n"
+            f"To keep accounts tidy and safe we plan to switch them off on {when}. "
+            "If you still need one, using it before then keeps it active. "
+            "If you do not, there is nothing you need to do.\n\n"
+            "The Visdom team"
+        ),
+    )
+
+
+def notify_owners(db, key_ids, send):
+    """Warn the owners of these unused keys, one message per owner.
+
+    A key is only marked as warned once its owner's message went out, so a
+    failure to send can never lead to a key being revoked without warning.
+    Returns the keys warned and the owners who could not be reached.
+    """
+    wanted = {str(key_id) for key_id in key_ids}
+    by_owner = {}
+    for key, _why in unused_keys(db):
+        if str(key.id) in wanted and key.owner is not None:
+            by_owner.setdefault(key.owner.email, []).append(key)
+
+    now = utcnow()
+    deadline = now + datetime.timedelta(days=NOTICE_DAYS)
+    warned, unreachable = [], []
+    for owner_email, keys in by_owner.items():
+        subject, body = notice_email(owner_email, keys, deadline)
+        if not send(owner_email, subject, body):
+            unreachable.append(owner_email)
+            continue
+        for key in keys:
+            key.owner_notified_at = now
+            key.revoke_after = deadline
+            warned.append((str(key.id), key.name))
+    if warned:
+        db.commit()
+    return warned, unreachable
+
+
+def due_key_ids(db):
+    now = utcnow()
+    return [str(key.id) for key, _why in unused_keys(db) if is_due(key, now)]
 
 
 def expired_links(db):
@@ -235,9 +320,7 @@ def findings(db):
                 f"{key.name} ({key.owner.email if key.owner else 'unknown'}) - {why}"
                 for key, why in unused_keys(db)
             ],
-            "revocable": [
-                {"id": str(key.id), "name": key.name} for key, _why in unused_keys(db)
-            ],
+            "manage": {"section": "keys", "label": "Manage these keys"},
         },
         {
             "title": "Shared links past their expiry",
