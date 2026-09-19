@@ -35,6 +35,29 @@ from sqlalchemy.orm import relationship
 from app.database import Base
 
 
+class Plan(Base):
+    """A subscription tier, edited from the admin console rather than in code.
+
+    Limits are a JSON object rather than a column each, so adding a new marker
+    to what a tier includes is a change to the data instead of a migration.
+    Every known marker must be present; a null value means unlimited. A plan is
+    archived rather than deleted, so accounts already on it keep what it gave
+    them while nobody new can be put on it.
+    """
+
+    __tablename__ = "plans"
+
+    id = Column(String, primary_key=True)
+    name = Column(String, nullable=False)
+    price = Column(Integer, nullable=True)
+    sort_order = Column(Integer, nullable=False, default=0, server_default="0")
+    is_public = Column(Boolean, nullable=False, default=True, server_default="true")
+    archived_at = Column(DateTime(timezone=True), nullable=True)
+    limits = Column(JSON, nullable=False, default=dict)
+    features = Column(JSON, nullable=False, default=list)
+    retention_days = Column(Integer, nullable=True)
+
+
 class User(Base):
     __tablename__ = "users"
 
@@ -43,7 +66,7 @@ class User(Base):
     username = Column(String, unique=True, index=True, nullable=False)
     password_hash = Column(String, nullable=False)
     stripe_customer_id = Column(String, nullable=True)
-    tier = Column(String, default="free")  # free, pro, enterprise
+    tier = Column(String, ForeignKey("plans.id", name="fk_users_tier_plans"), default="free")
     is_staff = Column(Boolean, default=False)
     is_active = Column(Boolean, default=True, nullable=False, server_default="true")
     token_version = Column(Integer, default=0, server_default="0", nullable=False)

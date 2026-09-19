@@ -177,3 +177,146 @@ def test_the_billing_page_and_the_refusal_agree(client, make_user):
         WORKSPACES, json={"name": "Two", "slug": "agree-two"}, headers=user["headers"]
     )
     assert refused.status_code == 402
+
+
+def _plan(db, plan_id, *, workspaces=1, members=3, api_keys=2, public=True, archived=False):
+    import datetime
+
+    from app.models import Plan
+
+    plan = Plan(
+        id=plan_id,
+        name=plan_id.title(),
+        price=5,
+        sort_order=9,
+        is_public=public,
+        archived_at=datetime.datetime.now(datetime.timezone.utc) if archived else None,
+        limits={"workspaces": workspaces, "members": members, "api_keys": api_keys},
+        features=[],
+    )
+    db.add(plan)
+    db.commit()
+    return plan
+
+
+def _put_on(db, user, tier):
+    from app.models import User
+
+    record = db.query(User).filter(User.email == user["email"]).first()
+    record.tier = tier
+    db.commit()
+
+
+def test_a_hidden_plan_is_not_offered(client, db_session):
+    _plan(db_session, "internal", public=False)
+    assert "internal" not in [plan["id"] for plan in client.get(f"{BILLING}/plans").json()]
+
+
+def test_an_archived_plan_is_not_offered(client, db_session):
+    _plan(db_session, "legacy", archived=True)
+    assert "legacy" not in [plan["id"] for plan in client.get(f"{BILLING}/plans").json()]
+
+
+def test_an_account_cannot_move_itself_onto_a_hidden_plan(client, make_user, db_session):
+    """Changing plan needs no payment yet, so a hidden tier must not be a
+    request away."""
+    _plan(db_session, "internal", workspaces=None, public=False)
+    user = make_user()
+    refused = client.post(f"{BILLING}/subscription", json={"tier": "internal"}, headers=user["headers"])
+    assert refused.status_code == 422
+
+
+def test_an_account_cannot_move_itself_onto_an_archived_plan(client, make_user, db_session):
+    _plan(db_session, "legacy", archived=True)
+    user = make_user()
+    refused = client.post(f"{BILLING}/subscription", json={"tier": "legacy"}, headers=user["headers"])
+    assert refused.status_code == 422
+
+
+def test_a_new_tier_is_held_to_its_own_limits(client, make_user, db_session):
+    _plan(db_session, "team", workspaces=2)
+    user = make_user()
+    _put_on(db_session, user, "team")
+
+    for n in range(2):
+        made = client.post(WORKSPACES, json={"name": f"T{n}", "slug": f"team-{n}"}, headers=user["headers"])
+        assert made.status_code == 201, made.text
+    third = client.post(WORKSPACES, json={"name": "T2", "slug": "team-2"}, headers=user["headers"])
+    assert third.status_code == 402
+
+
+def test_changing_a_limit_applies_at_once(client, make_user, db_session):
+    """No cache stands between an edit in the console and the next request."""
+    from app.models import Plan
+
+    user = make_user()
+    free = db_session.get(Plan, "free")
+    free.limits = {"workspaces": 0, "members": 3, "api_keys": 2}
+    db_session.commit()
+
+    refused = client.post(WORKSPACES, json={"name": "One", "slug": "at-once"}, headers=user["headers"])
+    assert refused.status_code == 402
+
+
+def test_an_account_on_an_archived_plan_keeps_its_limits(client, make_user, db_session):
+    """Archiving stops new assignments; it does not take anything away."""
+    import datetime
+
+    from app.models import Plan
+
+    user = make_user()
+    _put_on(db_session, user, "pro")
+    db_session.get(Plan, "pro").archived_at = datetime.datetime.now(datetime.timezone.utc)
+    db_session.commit()
+
+    shown = client.get(f"{BILLING}/subscription", headers=user["headers"]).json()
+    assert shown["tier"] == "pro"
+    assert shown["usage"]["workspaces"]["limit"] == 10
+
+
+def test_limits_must_name_every_marker():
+    """A missing marker would otherwise read as unlimited."""
+    import pytest
+
+    from app.billing import validate_limits
+
+    with pytest.raises(ValueError, match="missing: api_keys"):
+        validate_limits({"workspaces": 1, "members": 3})
+
+
+def test_limits_refuse_an_unknown_marker():
+    import pytest
+
+    from app.billing import validate_limits
+
+    with pytest.raises(ValueError, match="Unknown limit: workspace"):
+        validate_limits({"workspace": 1, "members": 3, "api_keys": 2})
+
+
+def test_limits_refuse_a_negative_or_non_whole_value():
+    import pytest
+
+    from app.billing import validate_limits
+
+    for bad in (-1, 1.5, "3", True):
+        with pytest.raises(ValueError):
+            validate_limits({"workspaces": bad, "members": 3, "api_keys": 2})
+
+
+def test_null_means_unlimited():
+    from app.billing import validate_limits
+
+    assert validate_limits({"workspaces": None, "members": 0, "api_keys": 5}) == {
+        "workspaces": None,
+        "members": 0,
+        "api_keys": 5,
+    }
+
+
+def test_an_untouched_features_box_saves_as_no_features():
+    """The console pre-fills the field with an empty object, not a list."""
+    from app.billing import validate_features
+
+    assert validate_features({}) == []
+    assert validate_features(None) == []
+    assert validate_features(["  one  ", ""]) == ["one"]

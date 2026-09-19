@@ -141,4 +141,4 @@ class SubscriptionResponse(BaseModel):
 
 
 class SubscriptionUpdate(BaseModel):
-    tier: Literal["free", "pro", "enterprise"]
+    tier: str = Field(..., min_length=1, max_length=40)

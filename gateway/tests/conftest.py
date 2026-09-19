@@ -34,8 +34,19 @@ _counter = itertools.count(1)
 
 @pytest.fixture(scope="function", autouse=True)
 def setup_database():
-    """Auto-creates tables before each test and drops them after."""
+    """Auto-creates tables before each test and drops them after.
+
+    The plans are seeded as the migration seeds them, since the schema here
+    comes from the models and not from the migrations.
+    """
+    from app.billing import seed_default_plans
+
     Base.metadata.create_all(bind=engine)
+    seeder = TestingSessionLocal()
+    try:
+        seed_default_plans(seeder)
+    finally:
+        seeder.close()
     yield
     Base.metadata.drop_all(bind=engine)
 
