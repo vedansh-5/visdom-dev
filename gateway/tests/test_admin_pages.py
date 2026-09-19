@@ -736,6 +736,19 @@ def test_each_leftover_list_links_to_a_page_of_its_own(admin_client):
     assert 'name="delete_one"' in invites
 
 
+def test_a_list_with_nothing_on_it_still_links_to_its_page(admin_client):
+    """The way in cannot depend on there being something to clean up: staff open
+    the page to check, and an empty card with no link reads as a missing feature."""
+    cleanup = admin_client.get("/admin/janitor").text
+    assert "Nothing to clean up here." in cleanup
+    for section in ("keys", "links", "invites"):
+        assert f'href="?section={section}"' in cleanup
+
+    empty = admin_client.get("/admin/janitor?section=links")
+    assert empty.status_code == 200
+    assert "No links to clean up." in empty.text
+
+
 def test_deleting_one_expired_link_leaves_the_rest_and_records_it(admin_client):
     from app.models import AdminAction, SharedLink
 
