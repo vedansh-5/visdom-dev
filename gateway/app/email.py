@@ -83,5 +83,18 @@ def send_workspace_invite_email(to_email: str, workspace_name: str, invite_url: 
     )
 
 
+def send_password_reset_email(to_email: str, reset_url: str, minutes: int) -> None:
+    send_later(
+        to_email,
+        "Reset your Visdom password",
+        (
+            "Someone asked to reset the password for the Visdom account that uses this email address.\n\n"
+            f"Choose a new password here within the next {minutes} minutes:\n{reset_url}\n\n"
+            "The link works once. If you did not ask for this, you can ignore this message "
+            "and your password stays as it is."
+        ),
+    )
+
+
 def build_share_link_url(link_id) -> str:
     return f"{settings.FRONTEND_URL}/share/{link_id}"
