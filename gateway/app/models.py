@@ -95,6 +95,8 @@ class APIKey(Base):
     created_at = Column(DateTime(timezone=True), default=utcnow)
     last_used_at = Column(DateTime(timezone=True), nullable=True)
     expires_at = Column(DateTime(timezone=True), nullable=True)
+    owner_notified_at = Column(DateTime(timezone=True), nullable=True)
+    revoke_after = Column(DateTime(timezone=True), nullable=True)
 
     # Relationships
     owner = relationship("User", back_populates="api_keys")

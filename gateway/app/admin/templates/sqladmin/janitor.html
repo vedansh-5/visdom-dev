@@ -109,6 +109,17 @@
     transition: all .2s var(--ap-ease);
   }
 
+  .ap-manage-link {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--ap-blue);
+    text-decoration: none;
+  }
+
+  .ap-manage-link:hover {
+    text-decoration: underline;
+  }
+
   .ap-purge-btn:hover {
     background: #a4262c;
     border-color: #a4262c;
@@ -157,23 +168,9 @@
         {% endfor %}
       </div>
       {% endif %}
-      {% if may_revoke and section.revocable %}
+      {% if section.manage %}
       <div class="ap-purge">
-        {% for item in section.revocable %}
-        <form method="post"
-          onsubmit="return confirm('Revoke this key? It stops working straight away, and can be switched back on from API keys.')">
-          <input type="hidden" name="intent" value="revoke">
-          <input type="hidden" name="key_id" value="{{ item.id }}">
-          <button type="submit" class="ap-purge-btn">Revoke {{ item.name }}</button>
-        </form>
-        {% endfor %}
-        {% if section.revocable | length > 1 %}
-        <form method="post"
-          onsubmit="return confirm('Revoke every key listed here? They stop working straight away, and can be switched back on from API keys.')">
-          <input type="hidden" name="intent" value="revoke">
-          <button type="submit" class="ap-purge-btn">Revoke all {{ section.revocable | length }}</button>
-        </form>
-        {% endif %}
+        <a class="ap-manage-link" href="?section={{ section.manage.section }}">{{ section.manage.label }} &rarr;</a>
       </div>
       {% endif %}
       {% else %}
