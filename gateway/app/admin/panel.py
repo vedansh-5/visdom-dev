@@ -1107,7 +1107,8 @@ class JanitorView(BaseView):
 
         section = request.query_params.get("section")
         if request.method == "POST":
-            query = {"notice": await self._act(request)}
+            kind, message = await self._act(request)
+            query = {"notice": message, "notice_kind": kind}
             if section:
                 query["section"] = section
             return RedirectResponse(request.url.replace(query=urlencode(query)), status_code=303)
@@ -1119,10 +1120,7 @@ class JanitorView(BaseView):
         return await self.templates.TemplateResponse(
             request,
             self.template,
-            {
-                "notice": request.query_params.get("notice"),
-                "may_purge": role == roles.SUPERADMIN,
-            },
+            {"may_purge": role == roles.SUPERADMIN},
         )
 
     async def _keys_page(self, request: Request, may_revoke: bool):
@@ -1148,7 +1146,6 @@ class JanitorView(BaseView):
             request,
             "sqladmin/janitor_keys.html",
             {
-                "notice": request.query_params.get("notice"),
                 "rows": rows,
                 "due_count": sum(1 for row in rows if row["due"]),
                 "may_revoke": may_revoke,
@@ -1170,7 +1167,7 @@ class JanitorView(BaseView):
         if intent == "revoke":
             single = str(form.get("key_id") or "")
             if not chosen and not single:
-                return "Select at least one key first."
+                return "error", "Select at least one key first."
             return await self._revoke(request, chosen or [single])
         if intent == "revoke_all":
             return await self._revoke(request, None)
@@ -1183,7 +1180,7 @@ class JanitorView(BaseView):
             finally:
                 db.close()
             if not due:
-                return "No key is past its notice yet."
+                return "info", "No key is past its notice yet."
             return await self._revoke(request, due)
         return await self._purge(request)
 
@@ -1200,7 +1197,7 @@ class JanitorView(BaseView):
         used since the page loaded is left alone.
         """
         if not self._may_touch_keys(request):
-            return "Your role cannot revoke keys."
+            return "error", "Your role cannot revoke keys."
         db = SessionLocal()
         try:
             revoked = janitor.revoke_unused_keys(db, key_ids)
@@ -1212,9 +1209,9 @@ class JanitorView(BaseView):
                 {"is_active": False, "revoked_from": "cleanup"},
             )
         if not revoked:
-            return "Nothing was revoked. The key may have been used since the page loaded."
+            return "info", "Nothing was revoked. The key may have been used since the page loaded."
         count = len(revoked)
-        return f"Revoked {count} unused key{'' if count == 1 else 's'}."
+        return "success", f"Revoked {count} unused key{'' if count == 1 else 's'}."
 
     async def _notify(self, request: Request, key_ids):
         """Email the owners of these unused keys that they will be revoked.
@@ -1223,11 +1220,11 @@ class JanitorView(BaseView):
         relay, so a failure here can never lead to a key revoked without notice.
         """
         if not self._may_touch_keys(request):
-            return "Your role cannot notify key owners."
+            return "error", "Your role cannot notify key owners."
         if not outbound.configured():
-            return "Email is not set up yet, so no owner was told and nothing changed."
+            return "error", "Email is not set up yet, so no owner was told and nothing changed."
         if not key_ids:
-            return "Select at least one key first."
+            return "error", "Select at least one key first."
 
         def warn():
             db = SessionLocal()
@@ -1251,7 +1248,9 @@ class JanitorView(BaseView):
             )
         if unreachable:
             parts.append("Could not email " + ", ".join(sorted(unreachable)) + "; their keys were not marked.")
-        return " ".join(parts) or "Nothing was sent. The keys may have been used since the page loaded."
+        if not parts:
+            return "info", "Nothing was sent. The keys may have been used since the page loaded."
+        return ("error" if unreachable else "success"), " ".join(parts)
 
     async def _purge(self, request: Request):
         """Remove one workspace that has served its time in the trash.
@@ -1263,7 +1262,7 @@ class JanitorView(BaseView):
         because this route is reachable without it.
         """
         if request.session.get(ROLE_KEY) != roles.SUPERADMIN:
-            return "Only a superadmin can purge a workspace."
+            return "error", "Only a superadmin can purge a workspace."
 
         form = await request.form()
         raw_id = str(form.get("workspace_id", ""))
@@ -1271,11 +1270,11 @@ class JanitorView(BaseView):
         try:
             slug = janitor.purge(db, uuid.UUID(raw_id))
         except (ValueError, LookupError) as exc:
-            return str(exc) or "That workspace could not be purged."
+            return "error", str(exc) or "That workspace could not be purged."
         finally:
             db.close()
         _record_action(request, "delete", "Workspace", raw_id, {"purged_from_trash": slug})
-        return f"Purged {slug}."
+        return "success", f"Purged {slug}."
 
 
 def _record_action(request, action, model, row_id, changes):

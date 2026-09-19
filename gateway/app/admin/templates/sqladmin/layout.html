@@ -461,6 +461,194 @@
   .card:has(#dropdownMenuButton:disabled) table tr > :first-child {
     display: none;
   }
+
+  .ap-toasts {
+    position: fixed;
+    top: 68px;
+    right: 16px;
+    z-index: 2000;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-width: 380px;
+    pointer-events: none;
+  }
+
+  .ap-toast {
+    position: relative;
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    min-width: 260px;
+    padding: 11px 14px;
+    overflow: hidden;
+    border-radius: var(--ap-radius-sm);
+    color: #fff;
+    font-size: 13.5px;
+    line-height: 1.45;
+    box-shadow: 0 6px 20px rgba(16, 24, 40, .18);
+    pointer-events: auto;
+    animation: ap-toast-enter .2s ease-out;
+  }
+
+  .ap-toast-leaving {
+    animation: ap-toast-exit .2s ease-in forwards;
+  }
+
+  .ap-toast-info {
+    background: #337ab7;
+  }
+
+  .ap-toast-success {
+    background: #5cb85c;
+  }
+
+  .ap-toast-warning {
+    background: #f0ad4e;
+  }
+
+  .ap-toast-error {
+    background: #d9534f;
+  }
+
+  .ap-toast-icon {
+    flex: none;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, .25);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    font-weight: 700;
+    margin-top: 1px;
+  }
+
+  .ap-toast-message {
+    flex: 1;
+    word-break: break-word;
+  }
+
+  .ap-toast-close {
+    flex: none;
+    background: transparent;
+    border: none;
+    color: inherit;
+    font-size: 17px;
+    line-height: 1;
+    opacity: .8;
+    padding: 0;
+    cursor: pointer;
+  }
+
+  .ap-toast-close:hover {
+    opacity: 1;
+  }
+
+  .ap-toast-progress {
+    position: absolute;
+    left: 0;
+    bottom: 0;
+    height: 3px;
+    width: 100%;
+    background: rgba(255, 255, 255, .7);
+    transform-origin: left;
+    animation: ap-toast-progress linear forwards;
+  }
+
+  .ap-confirm-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 2100;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+    background: rgba(16, 24, 40, .45);
+    animation: ap-fade .15s ease-out;
+  }
+
+  .ap-confirm {
+    width: 100%;
+    max-width: 420px;
+    padding: 22px 24px;
+    background: var(--ap-surface);
+    border-radius: var(--ap-radius);
+    box-shadow: 0 20px 50px rgba(16, 24, 40, .25);
+    animation: ap-toast-enter .18s ease-out;
+  }
+
+  .ap-confirm-title {
+    margin: 0 0 8px;
+    font-size: 16px;
+    font-weight: 600;
+  }
+
+  .ap-confirm-message {
+    margin: 0 0 20px;
+    font-size: 14px;
+    line-height: 1.5;
+    color: var(--ap-ink-soft);
+  }
+
+  .ap-confirm-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+  }
+
+  .ap-confirm-btn {
+    padding: 7px 16px;
+    border: 1px solid var(--ap-hairline);
+    border-radius: 999px;
+    background: var(--ap-surface);
+    color: var(--ap-ink);
+    font-size: 13.5px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+
+  .ap-confirm-btn.is-primary {
+    background: var(--ap-blue);
+    border-color: var(--ap-blue);
+    color: #fff;
+  }
+
+  .ap-confirm-btn.is-danger {
+    background: #d64545;
+    border-color: #d64545;
+    color: #fff;
+  }
+
+  #modal-delete .modal-dialog {
+    max-width: 420px;
+  }
+
+  .modal-content.ap-confirm {
+    border: none;
+    animation: none;
+  }
+
+  @keyframes ap-toast-enter {
+    from { opacity: 0; transform: scale(.94); }
+    to { opacity: 1; transform: scale(1); }
+  }
+
+  @keyframes ap-toast-exit {
+    from { opacity: 1; transform: scale(1); }
+    to { opacity: 0; transform: scale(.94); }
+  }
+
+  @keyframes ap-toast-progress {
+    from { transform: scaleX(1); }
+    to { transform: scaleX(0); }
+  }
+
+  @keyframes ap-fade {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
 </style>
 {% endblock %}
 
@@ -553,7 +741,14 @@
     <div class="row">
       {% block content %}{% endblock %}
       {% block flash %}
-      {% include 'sqladmin/flash.html' %}
+      {% set flashes = [] %}
+      {% if request.query_params.get('notice') %}
+      {% set _ = flashes.append({"kind": request.query_params.get('notice_kind', 'info'), "message": request.query_params.get('notice')}) %}
+      {% endif %}
+      {% for flashed in get_flashed_messages(request) %}
+      {% set _ = flashes.append({"kind": {"danger": "error", "primary": "info"}.get(flashed.category, flashed.category), "message": ((flashed.title ~ ": ") if flashed.title else "") ~ flashed.message}) %}
+      {% endfor %}
+      <script type="application/json" id="ap-flash">{{ flashes | tojson }}</script>
       {% endblock %}
       {% block secret_modal %}
       {% include 'sqladmin/secret_modal.html' %}
@@ -561,4 +756,179 @@
     </div>
   </main>
 </div>
+
+<script>
+  (() => {
+    const KINDS = new Set(["success", "error", "info", "warning"]);
+    const GLYPHS = { success: "\u2713", error: "!", warning: "!", info: "i" };
+
+    const stack = () => {
+      let holder = document.querySelector(".ap-toasts");
+      if (!holder) {
+        holder = document.createElement("div");
+        holder.className = "ap-toasts";
+        holder.setAttribute("aria-live", "polite");
+        document.body.appendChild(holder);
+      }
+      return holder;
+    };
+
+    window.apToast = (message, kind = "info", options = {}) => {
+      const tone = KINDS.has(kind) ? kind : "info";
+      const sticky = options.sticky ?? tone === "error";
+      const duration = options.duration ?? 4000;
+      const toast = document.createElement("div");
+      toast.className = `ap-toast ap-toast-${tone}`;
+      toast.setAttribute("role", tone === "error" ? "alert" : "status");
+      const icon = document.createElement("span");
+      icon.className = "ap-toast-icon";
+      icon.textContent = GLYPHS[tone];
+      const text = document.createElement("span");
+      text.className = "ap-toast-message";
+      text.textContent = message;
+      const close = document.createElement("button");
+      close.type = "button";
+      close.className = "ap-toast-close";
+      close.setAttribute("aria-label", "Dismiss");
+      close.textContent = "\u00d7";
+      toast.append(icon, text, close);
+      const leave = () => {
+        if (toast.classList.contains("ap-toast-leaving")) return;
+        toast.classList.add("ap-toast-leaving");
+        toast.addEventListener("animationend", () => toast.remove(), { once: true });
+      };
+      close.addEventListener("click", leave);
+      if (!sticky) {
+        const bar = document.createElement("span");
+        bar.className = "ap-toast-progress";
+        bar.style.animationDuration = `${duration}ms`;
+        toast.appendChild(bar);
+        setTimeout(leave, duration);
+      }
+      stack().appendChild(toast);
+      return toast;
+    };
+
+    window.apConfirm = ({
+      title = "Are you sure?",
+      message = "",
+      confirmLabel = "Confirm",
+      cancelLabel = "Cancel",
+      danger = false,
+    } = {}) =>
+      new Promise((resolve) => {
+        const previous = document.activeElement;
+        const overlay = document.createElement("div");
+        overlay.className = "ap-confirm-overlay";
+        const dialog = document.createElement("div");
+        dialog.className = "ap-confirm";
+        dialog.setAttribute("role", "dialog");
+        dialog.setAttribute("aria-modal", "true");
+        dialog.setAttribute("aria-labelledby", "ap-confirm-title");
+        const heading = document.createElement("h2");
+        heading.className = "ap-confirm-title";
+        heading.id = "ap-confirm-title";
+        heading.textContent = title;
+        const body = document.createElement("p");
+        body.className = "ap-confirm-message";
+        body.textContent = message;
+        const actions = document.createElement("div");
+        actions.className = "ap-confirm-actions";
+        const cancel = document.createElement("button");
+        cancel.type = "button";
+        cancel.className = "ap-confirm-btn";
+        cancel.textContent = cancelLabel;
+        const accept = document.createElement("button");
+        accept.type = "button";
+        accept.className = `ap-confirm-btn ${danger ? "is-danger" : "is-primary"}`;
+        accept.textContent = confirmLabel;
+        actions.append(cancel, accept);
+        dialog.append(heading, body, actions);
+        overlay.appendChild(dialog);
+        const onKey = (event) => {
+          if (event.key === "Escape") finish(false);
+        };
+        const finish = (answer) => {
+          document.removeEventListener("keydown", onKey);
+          overlay.remove();
+          if (previous && previous.focus) previous.focus();
+          resolve(answer);
+        };
+        cancel.addEventListener("click", () => finish(false));
+        accept.addEventListener("click", () => finish(true));
+        overlay.addEventListener("click", (event) => {
+          if (event.target === overlay) finish(false);
+        });
+        document.addEventListener("keydown", onKey);
+        document.body.appendChild(overlay);
+        (danger ? cancel : accept).focus();
+      });
+
+    window.alert = (message) => {
+      let text = String(message ?? "");
+      try {
+        const parsed = JSON.parse(text);
+        if (parsed && typeof parsed.detail === "string") text = parsed.detail;
+      } catch (error) {
+        text = text.trim();
+      }
+      window.apToast(text || "Something went wrong.", "error");
+    };
+
+    document.addEventListener("click", async (event) => {
+      const trigger = event.target.closest("[data-confirm]");
+      if (!trigger || trigger.disabled) return;
+      event.preventDefault();
+      const agreed = await window.apConfirm({
+        title: trigger.dataset.confirmTitle || "Are you sure?",
+        message: trigger.dataset.confirm,
+        confirmLabel: trigger.dataset.confirmLabel || trigger.textContent.trim(),
+        danger: trigger.hasAttribute("data-danger"),
+      });
+      if (!agreed) return;
+      if (trigger.form) {
+        trigger.form.requestSubmit(trigger);
+      } else if (trigger.href) {
+        window.location.href = trigger.href;
+      }
+    });
+
+    document.addEventListener("change", (event) => {
+      const all = event.target.closest("[data-select-all]");
+      if (!all) return;
+      const selector = `input[name="${CSS.escape(all.dataset.selectAll)}"]`;
+      for (const box of document.querySelectorAll(selector)) box.checked = all.checked;
+    });
+
+    const showFlashes = () => {
+      const source = document.getElementById("ap-flash");
+      let items = [];
+      try {
+        items = JSON.parse((source && source.textContent) || "[]");
+      } catch (error) {
+        items = [];
+      }
+      for (const item of items) {
+        if (item && item.message) window.apToast(item.message, item.kind);
+      }
+      for (const banner of document.querySelectorAll('main .alert.alert-danger[role="alert"]')) {
+        const text = banner.textContent.trim().replace(/^\d{3}:\s*/, "");
+        if (text) window.apToast(text, "error");
+        banner.remove();
+      }
+      const url = new URL(window.location.href);
+      const shown = ["notice", "notice_kind", "error"].filter((key) => url.searchParams.has(key));
+      if (shown.length) {
+        for (const key of shown) url.searchParams.delete(key);
+        window.history.replaceState(null, "", url);
+      }
+    };
+
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", showFlashes);
+    } else {
+      showFlashes();
+    }
+  })();
+</script>
 {% endblock %}

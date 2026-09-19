@@ -125,22 +125,9 @@
     border-color: #a4262c;
     color: #fff;
   }
-
-  .ap-notice {
-    background: var(--ap-accent-soft);
-    color: var(--ap-accent);
-    border-radius: var(--ap-radius-sm);
-    padding: 14px 18px;
-    font-size: 14px;
-    margin-bottom: 20px;
-  }
 </style>
 
 <div class="col-12">
-  {% if notice %}
-  <div class="ap-notice">{{ notice }}</div>
-  {% endif %}
-
   <div class="ap-sections">
     {% for section in janitor_findings() %}
     <div class="ap-section">
@@ -160,10 +147,11 @@
       {% if may_purge and section.purgeable %}
       <div class="ap-purge">
         {% for item in section.purgeable %}
-        <form method="post"
-          onsubmit="return confirm('Purge {{ item.slug }}? Its rows are removed for good. What is on the visdom volume stays, and shows up under orphaned workspaces.')">
+        <form method="post">
           <input type="hidden" name="workspace_id" value="{{ item.id }}">
-          <button type="submit" class="ap-purge-btn">Purge {{ item.slug }} ({{ item.days }}d)</button>
+          <button type="submit" class="ap-purge-btn" data-danger data-confirm-label="Purge"
+            data-confirm-title="Purge {{ item.slug }}?"
+            data-confirm="Its rows are removed for good. What is on the visdom volume stays, and shows up under orphaned workspaces.">Purge {{ item.slug }} ({{ item.days }}d)</button>
         </form>
         {% endfor %}
       </div>

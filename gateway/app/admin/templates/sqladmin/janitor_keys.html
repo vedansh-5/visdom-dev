@@ -19,15 +19,6 @@
     text-decoration: none;
   }
 
-  .ap-notice {
-    background: var(--ap-accent-soft);
-    color: var(--ap-accent);
-    border-radius: var(--ap-radius-sm);
-    padding: 14px 18px;
-    font-size: 14px;
-    margin-bottom: 20px;
-  }
-
   .ap-explain {
     font-size: 14px;
     color: var(--ap-ink-soft);
@@ -108,10 +99,6 @@
 </style>
 
 <div class="col-12">
-  {% if notice %}
-  <div class="ap-notice">{{ notice }}</div>
-  {% endif %}
-
   <p class="ap-explain">
     Notifying an owner emails them the keys in question and the date they will be switched off,
     {{ notice_days }} days from now. Using a key before then keeps it. Revoking switches a key off
@@ -128,18 +115,22 @@
       <span class="ap-bulk-label">Selected</span>
       <button type="submit" class="ap-act" name="intent" value="notify"
         {% if not (may_revoke and email_ready) %}disabled{% endif %}
-        onclick="return confirm('Email the owners of the selected keys that they will be switched off?')">Notify owners</button>
+        data-confirm-title="Notify owners?" data-confirm-label="Send notice"
+        data-confirm="The owners of the selected keys are emailed that their keys will be switched off in {{ notice_days }} days unless used.">Notify owners</button>
       <button type="submit" class="ap-act is-danger" name="intent" value="revoke"
         {% if not may_revoke %}disabled{% endif %}
-        onclick="return confirm('Revoke the selected keys now?')">Revoke</button>
+        data-danger data-confirm-title="Revoke the selected keys?" data-confirm-label="Revoke"
+        data-confirm="They stop working at once. Each can be switched back on from API keys.">Revoke</button>
       <span class="ap-bulk-label">All</span>
       <button type="submit" class="ap-act is-danger" name="intent" value="revoke_all"
         {% if not may_revoke %}disabled{% endif %}
-        onclick="return confirm('Revoke every unused key listed here now?')">Revoke all {{ rows | length }}</button>
+        data-danger data-confirm-title="Revoke all {{ rows | length }} unused keys?" data-confirm-label="Revoke all"
+        data-confirm="Every key listed here stops working at once. Each can be switched back on from API keys.">Revoke all {{ rows | length }}</button>
       {% if due_count %}
       <button type="submit" class="ap-act is-danger" name="intent" value="revoke_due"
         {% if not may_revoke %}disabled{% endif %}
-        onclick="return confirm('Revoke every key whose notice period has ended?')">Revoke {{ due_count }} past notice</button>
+        data-danger data-confirm-title="Revoke {{ due_count }} keys past notice?" data-confirm-label="Revoke"
+        data-confirm="Their owners were told and the notice period has ended without the keys being used.">Revoke {{ due_count }} past notice</button>
       {% endif %}
     </div>
     <div class="table-responsive">
@@ -147,7 +138,7 @@
         <thead>
           <tr>
             <th class="w-1"><input class="form-check-input m-0" type="checkbox" aria-label="Select all"
-              onclick="for (const box of document.querySelectorAll('input[name=key_ids]')) box.checked = this.checked"></th>
+              data-select-all="key_ids"></th>
             <th>Key</th>
             <th>Owner</th>
             <th>Created</th>
@@ -168,10 +159,12 @@
                 <button type="submit" class="ap-act" name="notify_one" value="{{ row.id }}"
                   {% if not (may_revoke and email_ready) or row.told %}disabled{% endif %}
                   {% if not email_ready %}title="Email is not set up yet"{% elif row.told %}title="The owner has already been told"{% endif %}
-                  onclick="return confirm('Email the owner of this key that it will be switched off?')">Notify owner</button>
+                  data-confirm-title="Notify the owner of {{ row.name }}?" data-confirm-label="Send notice"
+                  data-confirm="{{ row.owner }} is emailed that this key will be switched off in {{ notice_days }} days unless used.">Notify owner</button>
                 <button type="submit" class="ap-act is-danger" name="revoke_one" value="{{ row.id }}"
                   {% if not may_revoke %}disabled{% endif %}
-                  onclick="return confirm('Revoke this key now?')">Revoke</button>
+                  data-danger data-confirm-title="Revoke {{ row.name }}?" data-confirm-label="Revoke"
+                  data-confirm="It stops working at once. It can be switched back on from API keys.">Revoke</button>
               </div>
             </td>
           </tr>
