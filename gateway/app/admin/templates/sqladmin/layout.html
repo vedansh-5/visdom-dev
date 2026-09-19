@@ -453,6 +453,14 @@
       display: none;
     }
   }
+
+  .card:has(#dropdownMenuButton:disabled) .dropdown:has(#dropdownMenuButton) {
+    visibility: hidden;
+  }
+
+  .card:has(#dropdownMenuButton:disabled) table tr > :first-child {
+    display: none;
+  }
 </style>
 {% endblock %}
 
