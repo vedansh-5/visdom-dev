@@ -27,6 +27,12 @@ class Settings(BaseSettings):
     PORT: int = 8085
     FRONTEND_URL: str = "http://localhost:5173"
     SUPPORT_CONTACT: str = ""
+    SMTP_HOST: str = ""
+    SMTP_PORT: int = 587
+    SMTP_USERNAME: str = ""
+    SMTP_PASSWORD: str = ""
+    MAIL_FROM: str = ""
+    MAIL_FROM_NAME: str = "Visdom"
     VISDOM_SERVERS: str = ""
     ADMIN_ENVIRONMENT: str = ""
     VISDOM_ACTIVITY_TIMEOUT: float = 1.0
