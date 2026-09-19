@@ -21,7 +21,8 @@ from app.admin import roles, server_stats
 from app.admin.panel import ROLE_KEY
 from app.database import SessionLocal
 from app.models import Workspace, WorkspaceUsageHour
-from app.routers.usage import latest_storage, month_start
+from app.routers.usage import month_start
+from app.usage import latest_storage
 
 _UNITS = ("B", "KB", "MB", "GB", "TB")
 

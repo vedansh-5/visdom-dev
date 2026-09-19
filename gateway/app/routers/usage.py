@@ -15,12 +15,12 @@ its plan pays for.
 import datetime
 
 from fastapi import APIRouter, Depends
-from sqlalchemy import and_, func
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.dependencies import get_current_user, get_db
 from app.models import User, Workspace, WorkspaceUsageHour, utcnow
-from app.usage import owned_workspace_ids
+from app.usage import latest_storage, owned_workspace_ids
 
 router = APIRouter(prefix="/usage", tags=["usage"])
 
@@ -44,37 +44,6 @@ def active_minutes_since(db: Session, workspace_ids, since) -> dict:
         .all()
     )
     return {workspace_id: int(total or 0) for workspace_id, total in rows}
-
-
-def latest_storage(db: Session, workspace_ids) -> dict:
-    """Bytes on disk per workspace, as of the most recent hour recorded.
-
-    Storage is a level rather than a total, so this is the latest reading and
-    never a sum over the month.
-    """
-    if not workspace_ids:
-        return {}
-    newest = (
-        db.query(
-            WorkspaceUsageHour.workspace_id,
-            func.max(WorkspaceUsageHour.hour_start).label("hour_start"),
-        )
-        .filter(WorkspaceUsageHour.workspace_id.in_(workspace_ids))
-        .group_by(WorkspaceUsageHour.workspace_id)
-        .subquery()
-    )
-    rows = (
-        db.query(WorkspaceUsageHour.workspace_id, WorkspaceUsageHour.peak_bytes)
-        .join(
-            newest,
-            and_(
-                WorkspaceUsageHour.workspace_id == newest.c.workspace_id,
-                WorkspaceUsageHour.hour_start == newest.c.hour_start,
-            ),
-        )
-        .all()
-    )
-    return {workspace_id: int(size or 0) for workspace_id, size in rows}
 
 
 @router.get("")

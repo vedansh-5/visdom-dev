@@ -640,7 +640,7 @@ def test_a_key_name_cannot_reach_the_pages_javascript(admin_client):
     assert not any("alert(1)" in handler for handler in handlers)
 
 
-def _plan_form(plan_id="team", limits='{"workspaces": 3, "members": 5, "api_keys": 4}', **extra):
+def _plan_form(plan_id="team", limits='{"workspaces": 3, "members": 5, "api_keys": 4, "storage_mb": 2048}', **extra):
     form = {
         "id": plan_id,
         "name": "Team",
@@ -663,7 +663,7 @@ def test_a_superadmin_can_add_a_plan(admin_client):
 
     admin_client.staff_db.expire_all()
     plan = admin_client.staff_db.get(Plan, "team")
-    assert plan.limits == {"workspaces": 3, "members": 5, "api_keys": 4}
+    assert plan.limits == {"workspaces": 3, "members": 5, "api_keys": 4, "storage_mb": 2048}
     assert plan.features == ["3 workspaces"]
 
 
@@ -702,7 +702,7 @@ def test_editing_a_plan_changes_its_limits_but_never_its_id(admin_client):
             "price": "29",
             "sort_order": "1",
             "is_public": "y",
-            "limits": '{"workspaces": 15, "members": null, "api_keys": 20}',
+            "limits": '{"workspaces": 15, "members": null, "api_keys": 20, "storage_mb": 10240}',
             "features": "[]",
             "retention_days": "90",
         },

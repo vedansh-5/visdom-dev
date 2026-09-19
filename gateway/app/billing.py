@@ -29,7 +29,7 @@ from app.models import Plan
 
 DEFAULT_TIER = "free"
 
-LIMIT_KEYS = ("workspaces", "members", "api_keys")
+LIMIT_KEYS = ("workspaces", "members", "api_keys", "storage_mb")
 
 PLAN_ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9-]{0,39}$")
 
@@ -39,11 +39,12 @@ DEFAULT_PLANS = [
         "name": "Free",
         "price": 0,
         "sort_order": 0,
-        "limits": {"workspaces": 1, "members": 3, "api_keys": 2},
+        "limits": {"workspaces": 1, "members": 3, "api_keys": 2, "storage_mb": 1024},
         "retention_days": 7,
         "features": [
             "1 workspace",
             "3 team members",
+            "1 GB of storage",
             "7-day log retention",
             "Community support",
         ],
@@ -53,11 +54,12 @@ DEFAULT_PLANS = [
         "name": "Pro",
         "price": 29,
         "sort_order": 1,
-        "limits": {"workspaces": 10, "members": None, "api_keys": 20},
+        "limits": {"workspaces": 10, "members": None, "api_keys": 20, "storage_mb": 10240},
         "retention_days": 90,
         "features": [
             "10 workspaces",
             "Unlimited members",
+            "10 GB of storage",
             "90-day log retention",
             "Priority support",
             "Shared links",
@@ -68,7 +70,7 @@ DEFAULT_PLANS = [
         "name": "Enterprise",
         "price": None,
         "sort_order": 2,
-        "limits": {"workspaces": None, "members": None, "api_keys": None},
+        "limits": {"workspaces": None, "members": None, "api_keys": None, "storage_mb": None},
         "retention_days": None,
         "features": [
             "Unlimited workspaces",

@@ -10,11 +10,11 @@ def test_list_plans(client):
 
     free, pro, enterprise = plans
     assert free["price"] == 0
-    assert free["limits"] == {"workspaces": 1, "members": 3, "api_keys": 2}
+    assert free["limits"] == {"workspaces": 1, "members": 3, "api_keys": 2, "storage_mb": 1024}
     assert pro["price"] == 29
     assert pro["limits"]["members"] is None
     assert enterprise["price"] is None
-    assert enterprise["limits"] == {"workspaces": None, "members": None, "api_keys": None}
+    assert enterprise["limits"] == {"workspaces": None, "members": None, "api_keys": None, "storage_mb": None}
     assert all(plan["features"] for plan in plans)
 
 
@@ -34,6 +34,7 @@ def test_fresh_user_subscription(client, make_user):
         "workspaces": {"used": 0, "limit": 1},
         "members": {"used": 0, "limit": 3},
         "api_keys": {"used": 0, "limit": 2},
+        "storage": {"used": 0, "limit": 1024 * 1024 * 1024},
     }
 
 
@@ -251,7 +252,7 @@ def test_changing_a_limit_applies_at_once(client, make_user, db_session):
 
     user = make_user()
     free = db_session.get(Plan, "free")
-    free.limits = {"workspaces": 0, "members": 3, "api_keys": 2}
+    free.limits = {"workspaces": 0, "members": 3, "api_keys": 2, "storage_mb": 1024}
     db_session.commit()
 
     refused = client.post(WORKSPACES, json={"name": "One", "slug": "at-once"}, headers=user["headers"])
@@ -290,7 +291,7 @@ def test_limits_refuse_an_unknown_marker():
     from app.billing import validate_limits
 
     with pytest.raises(ValueError, match="Unknown limit: workspace"):
-        validate_limits({"workspace": 1, "members": 3, "api_keys": 2})
+        validate_limits({"workspace": 1, "members": 3, "api_keys": 2, "storage_mb": 1})
 
 
 def test_limits_refuse_a_negative_or_non_whole_value():
@@ -300,16 +301,17 @@ def test_limits_refuse_a_negative_or_non_whole_value():
 
     for bad in (-1, 1.5, "3", True):
         with pytest.raises(ValueError):
-            validate_limits({"workspaces": bad, "members": 3, "api_keys": 2})
+            validate_limits({"workspaces": bad, "members": 3, "api_keys": 2, "storage_mb": 1})
 
 
 def test_null_means_unlimited():
     from app.billing import validate_limits
 
-    assert validate_limits({"workspaces": None, "members": 0, "api_keys": 5}) == {
+    assert validate_limits({"workspaces": None, "members": 0, "api_keys": 5, "storage_mb": None}) == {
         "workspaces": None,
         "members": 0,
         "api_keys": 5,
+        "storage_mb": None,
     }
 
 
