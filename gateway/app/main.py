@@ -14,7 +14,7 @@ from app.admin import mount_admin
 from app.admin.activity import activity_per_instance
 from app.config import settings
 from app.database import SessionLocal
-from app.routers import api_keys, auth, billing, health, visdom, workspaces
+from app.routers import api_keys, auth, billing, health, usage, visdom, workspaces
 
 
 async def _sample_usage_forever(seconds: int) -> None:
@@ -75,6 +75,7 @@ app.include_router(api_keys.router, prefix="/api/v1")
 app.include_router(health.router, prefix="/api/v1")
 app.include_router(workspaces.router, prefix="/api/v1")
 app.include_router(billing.router, prefix="/api/v1")
+app.include_router(usage.router, prefix="/api/v1")
 app.include_router(visdom.router, prefix="/api/v1")
 
 
