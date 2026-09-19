@@ -34,6 +34,7 @@ to 5 s and close the revocation gap six times faster.
 | `viewbench.py` | `bench` container | scenario 5 — N viewers watching one workspace |
 | `shardcheck.py` | `bench` container | asserts nginx routes each workspace to one instance |
 | `fleet.py` | `bench` container | creates and destroys 4b's throwaway workspaces and keys |
+| `usersim.py` | your laptop | several people using the deployment at once, end to end |
 | `Dockerfile`, `requirements.txt` | — | the generator image |
 | `k6run.sh` | VM host | runs one k6 scenario with the sampler attached |
 | `k6/lib.js` | `k6` container | seeding, sessions, the settle wait and the executor options |
@@ -45,7 +46,38 @@ to 5 s and close the revocation gap six times faster.
 namespace and cannot see the visdom server process at all. Standard library only, so
 nothing needs installing.
 
-## Running it
+## Watching several people use it at once
+
+`usersim.py` is the odd one out here, and the only thing meant to run from a laptop. It
+is not a measurement: it makes the deployment look busy so the console and the
+visualization tab can be watched with real traffic in them, across more than one
+account. Every simulated person registers, makes a workspace, mints an API key and runs
+training-shaped experiments through the visdom python client, while their session polls
+the console the way an open dashboard does.
+
+It needs the client testers install, not the one in the bench image:
+
+```bash
+python3 -m venv ~/.venvs/visdom-client
+source ~/.venvs/visdom-client/bin/activate
+python -m pip install "git+https://github.com/vedansh-5/visdom.git@dev" numpy requests
+
+python bench/usersim.py run --users 4 --minutes 10
+python bench/usersim.py teardown
+```
+
+`run` prints each person's sign-in details and the URL of their visualization tab, so
+two browsers can watch different workspaces fill at once. Ctrl-C stops early and still
+prints the summary. `--envs` sets how many experiments run per workspace and `--rate`
+how many updates a second each one sends; the defaults are deliberately gentle, since
+the point is a lifelike screen rather than a ceiling. `--workspaces` above 1 needs an
+account on a plan that allows more than the free one.
+
+The manifest (`~/.visdom-loadgen.json`) holds API keys in plain text, which is why it
+lives outside the repository. `teardown` revokes those keys and trashes the workspaces.
+The accounts stay, since there is no delete-account endpoint yet.
+
+## Running the measurements
 
 On the VM, never from a laptop — otherwise you are measuring a home connection and the
 round trip to Oracle.
