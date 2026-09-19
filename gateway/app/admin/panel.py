@@ -1508,7 +1508,10 @@ def mount_admin(app, secret_key, base_url="/admin"):
         lambda request: _janitor_url(admin, request)
     )
     admin.templates.env.globals["record_label"] = record_label
+    from app.admin.usage_view import UsageView
+
     for view in VIEWS:
         admin.add_view(view)
     admin.add_view(JanitorView)
+    admin.add_view(UsageView)
     return admin
