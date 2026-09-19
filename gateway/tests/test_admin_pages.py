@@ -49,6 +49,9 @@ def admin_client(db_session, monkeypatch):
     staff_sessions = sessionmaker(bind=engine)
     monkeypatch.setattr(panel, "SessionLocal", staff_sessions)
     monkeypatch.setattr(panel, "engine", engine)
+    from app.admin import usage_view
+
+    monkeypatch.setattr(usage_view, "SessionLocal", staff_sessions)
 
     staff_db = staff_sessions()
     staff_db.add(
@@ -789,3 +792,78 @@ def test_an_account_already_on_an_archived_plan_can_still_be_suspended(admin_cli
     record = db.get(User, user.id)
     assert record.is_active is False
     assert record.tier == "legacy"
+
+
+def test_the_usage_page_renders_for_staff(admin_client):
+    page = admin_client.get("/admin/usage")
+    assert page.status_code == 200
+    assert "Server" in page.text
+    assert "This month, all workspaces" in page.text
+
+
+def test_the_usage_page_lists_what_each_workspace_used(admin_client):
+    import datetime
+
+    from app.models import User, WorkspaceUsageHour
+    from app.routers.usage import month_start
+
+    db = admin_client.staff_db
+    owner = User(id=uuid.uuid4(), email="busy@example.com", username="busy", password_hash="x", tier="pro")
+    busy = Workspace(id=uuid.uuid4(), name="Busy", slug="busy-one", created_by=owner.id)
+    quiet = Workspace(id=uuid.uuid4(), name="Quiet", slug="quiet-one", created_by=owner.id)
+    db.add_all([owner, busy, quiet])
+    db.commit()
+    db.add(
+        WorkspaceUsageHour(
+            workspace_id=busy.id,
+            hour_start=month_start() + datetime.timedelta(days=1, hours=9),
+            active_minutes=95,
+            writes=1200,
+            broadcasts=3400,
+            broadcast_bytes=5 * 1024 * 1024,
+            peak_bytes=40 * 1024 * 1024,
+        )
+    )
+    db.commit()
+
+    page = admin_client.get("/admin/usage").text
+    assert "busy-one" in page and "quiet-one" in page
+    assert "1h 35m" in page
+    assert "1,200" in page
+    assert "40.0 MB" in page
+    assert page.index("busy-one") < page.index("quiet-one")
+
+
+def test_support_can_see_usage_and_a_stranger_cannot(admin_client):
+    from app.admin.usage_view import UsageView
+
+    class Req:
+        def __init__(self, role):
+            self.session = {"admin_role": role}
+
+    assert UsageView._allowed(Req("support"))
+    assert not UsageView._allowed(Req("stranger"))
+
+
+def test_the_server_report_survives_a_machine_that_reports_nothing(monkeypatch, db_session):
+    """On a development machine there is no /proc; the page must still render."""
+    from app.admin import server_stats, usage_view
+
+    monkeypatch.setattr(
+        server_stats,
+        "snapshot",
+        lambda: {"cpus": 2, "load": None, "memory": None, "disk": None, "uptime_seconds": None},
+    )
+    report = usage_view.server_report(db_session)
+    assert report["memory"] is None
+    assert report["disk"] is None
+    assert report["load_share"] is None
+
+
+def test_a_full_disk_is_reported_as_a_share():
+    from app.admin.usage_view import _share, format_bytes, format_minutes
+
+    assert _share(69, 100) == 69
+    assert _share(1, 0) is None
+    assert format_bytes(40 * 1024 * 1024) == "40.0 MB"
+    assert format_minutes(95) == "1h 35m"
