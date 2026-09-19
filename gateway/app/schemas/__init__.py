@@ -53,6 +53,20 @@ class GeneratedUsernameResponse(BaseModel):
     username: str
 
 
+class PasswordResetRequest(BaseModel):
+    email: EmailStr = Field(..., max_length=100)
+
+
+class PasswordResetRequested(BaseModel):
+    email_enabled: bool
+    support_contact: str
+
+
+class PasswordResetConfirm(BaseModel):
+    token: str = Field(..., min_length=1, max_length=200)
+    password: str = Field(..., min_length=6, max_length=100)
+
+
 # --- TOKEN SCHEMAS ---
 class Token(BaseModel):
     access_token: str

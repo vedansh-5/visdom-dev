@@ -11,6 +11,8 @@ from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
+from app import email as outbound
+from app import password_reset
 from app.config import settings
 from app.dependencies import (
     commit_or_conflict,
@@ -24,6 +26,9 @@ from app.dependencies import (
 from app.models import APIKey, Membership, User, WorkspaceInvite, utcnow
 from app.schemas import (
     GeneratedUsernameResponse,
+    PasswordResetConfirm,
+    PasswordResetRequest,
+    PasswordResetRequested,
     Token,
     UserCreate,
     UsernameAvailabilityResponse,
@@ -302,6 +307,39 @@ def logout(request: Request, response: Response, db: Session = Depends(get_db)):
     response.delete_cookie(key="refresh_token", path="/api/v1/auth")
     response.delete_cookie(key="session_token", path="/")
     return {"detail": "Successfully logged out"}
+
+
+@router.post("/forgot-password", response_model=PasswordResetRequested, status_code=status.HTTP_202_ACCEPTED)
+def forgot_password(body: PasswordResetRequest, db: Session = Depends(get_db)):
+    """Email a reset link, answering the same whether or not the account exists.
+
+    The reply says only whether this server can send email at all, so the page
+    can point to support instead of leaving someone waiting for a message that
+    will never come. It never says whether the address has an account.
+    """
+    email_enabled = outbound.configured()
+    if email_enabled:
+        user = db.query(User).filter(User.email == body.email.strip().lower()).first()
+        if user is not None and user.is_active:
+            token = password_reset.issue(db, user)
+            if token is not None:
+                outbound.send_password_reset_email(
+                    user.email,
+                    f"{settings.FRONTEND_URL}/reset-password#token={token}",
+                    password_reset.LINK_MINUTES,
+                )
+    return {"email_enabled": email_enabled, "support_contact": settings.SUPPORT_CONTACT}
+
+
+@router.post("/reset-password")
+def reset_password(body: PasswordResetConfirm, db: Session = Depends(get_db)):
+    """Set a new password from an emailed link, signing out every session."""
+    if password_reset.redeem(db, body.token, body.password) is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This reset link is invalid or has expired. Ask for a new one.",
+        )
+    return {"detail": "Your password has been changed. Sign in with the new one."}
 
 
 @router.get("/verify")
