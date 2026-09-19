@@ -686,6 +686,157 @@ def test_deleting_a_row_asks_in_the_consoles_own_dialog(admin_client):
     assert 'id="modal-delete-button"' in page
 
 
+def _workspace(db, slug):
+    workspace = Workspace(id=uuid.uuid4(), name=slug, slug=slug)
+    db.add(workspace)
+    return workspace
+
+
+def _shared_link(db, workspace, *, expired_days_ago, email=None):
+    import datetime
+
+    from app.models import SharedLink
+
+    now = datetime.datetime.now(datetime.timezone.utc)
+    link = SharedLink(
+        id=uuid.uuid4(),
+        workspace_id=workspace.id,
+        role="member",
+        invite_email=email,
+        expires_at=now - datetime.timedelta(days=expired_days_ago),
+    )
+    db.add(link)
+    return link
+
+
+def _invite(db, workspace, email):
+    from app.models import WorkspaceInvite
+
+    invite = WorkspaceInvite(id=uuid.uuid4(), workspace_id=workspace.id, email=email, role="member")
+    db.add(invite)
+    return invite
+
+
+def test_each_leftover_list_links_to_a_page_of_its_own(admin_client):
+    db = admin_client.staff_db
+    workspace = _workspace(db, "left-behind")
+    _shared_link(db, workspace, expired_days_ago=3, email="gone@example.com")
+    _invite(db, workspace, _owner(db).email)
+    db.commit()
+
+    cleanup = admin_client.get("/admin/janitor").text
+    assert 'href="?section=links"' in cleanup
+    assert 'href="?section=invites"' in cleanup
+
+    links = admin_client.get("/admin/janitor?section=links").text
+    assert "gone@example.com" in links
+    assert 'name="delete_one"' in links
+    invites = admin_client.get("/admin/janitor?section=invites").text
+    assert "left-behind" in invites
+    assert 'name="delete_one"' in invites
+
+
+def test_deleting_one_expired_link_leaves_the_rest_and_records_it(admin_client):
+    from app.models import AdminAction, SharedLink
+
+    db = admin_client.staff_db
+    workspace = _workspace(db, "two-links")
+    doomed = _shared_link(db, workspace, expired_days_ago=3, email="a@example.com")
+    kept = _shared_link(db, workspace, expired_days_ago=5, email="b@example.com")
+    db.commit()
+    doomed_id, kept_id = doomed.id, kept.id
+
+    done = admin_client.post(
+        "/admin/janitor?section=links", data={"delete_one": str(doomed_id)}, follow_redirects=False
+    )
+    assert "Deleted+1+link" in done.headers["location"]
+    assert "section=links" in done.headers["location"]
+
+    db.expire_all()
+    assert db.get(SharedLink, doomed_id) is None
+    assert db.get(SharedLink, kept_id) is not None
+    entry = db.query(AdminAction).filter(AdminAction.row_id == str(doomed_id)).one()
+    assert (entry.action, entry.model) == ("delete", "SharedLink")
+    assert entry.changes["issued_to"] == "a@example.com"
+
+
+def test_a_link_still_in_date_cannot_be_deleted_from_the_cleanup_page(admin_client):
+    from app.models import SharedLink
+
+    db = admin_client.staff_db
+    live = _shared_link(db, _workspace(db, "live-link"), expired_days_ago=-3)
+    db.commit()
+
+    done = admin_client.post(
+        "/admin/janitor?section=links", data={"delete_one": str(live.id)}, follow_redirects=False
+    )
+    assert "notice_kind=info" in done.headers["location"]
+    db.expire_all()
+    assert db.get(SharedLink, live.id) is not None
+
+
+def test_delete_all_removes_only_invites_to_people_who_signed_up(admin_client):
+    from app.models import WorkspaceInvite
+
+    db = admin_client.staff_db
+    workspace = _workspace(db, "invites-here")
+    answered = [_invite(db, workspace, _owner(db).email) for _ in range(2)]
+    pending = _invite(db, workspace, "not-yet@example.com")
+    db.commit()
+    answered_ids, pending_id = [invite.id for invite in answered], pending.id
+
+    done = admin_client.post(
+        "/admin/janitor?section=invites", data={"intent": "delete_all"}, follow_redirects=False
+    )
+    assert "Deleted+2+invites" in done.headers["location"]
+    db.expire_all()
+    assert all(db.get(WorkspaceInvite, invite_id) is None for invite_id in answered_ids)
+    assert db.get(WorkspaceInvite, pending_id) is not None
+
+
+def test_deleting_with_nothing_selected_deletes_nothing(admin_client):
+    from app.models import WorkspaceInvite
+
+    db = admin_client.staff_db
+    invite = _invite(db, _workspace(db, "unselected"), _owner(db).email)
+    db.commit()
+
+    done = admin_client.post(
+        "/admin/janitor?section=invites", data={"intent": "delete"}, follow_redirects=False
+    )
+    assert "Select+at+least+one+invite" in done.headers["location"]
+    db.expire_all()
+    assert db.get(WorkspaceInvite, invite.id) is not None
+
+
+def test_support_sees_the_leftovers_but_cannot_delete_them(admin_client):
+    from app.models import SharedLink
+
+    db = admin_client.staff_db
+    link = _shared_link(db, _workspace(db, "support-view"), expired_days_ago=3)
+    db.add(
+        AdminUser(
+            id=uuid.uuid4(),
+            email="support@example.com",
+            password_hash=get_password_hash("supportpassword"),
+            role="support",
+            is_active=True,
+        )
+    )
+    db.commit()
+    admin_client.post("/admin/login", data={"username": "support@example.com", "password": "supportpassword"})
+
+    page = admin_client.get("/admin/janitor?section=links").text
+    assert "but not delete them" in page
+
+    done = admin_client.post(
+        "/admin/janitor?section=links", data={"delete_one": str(link.id)}, follow_redirects=False
+    )
+    assert "notice_kind=error" in done.headers["location"]
+    db.expire_all()
+    assert db.get(SharedLink, link.id) is not None
+
+
 def _plan_form(plan_id="team", limits='{"workspaces": 3, "members": 5, "api_keys": 4, "storage_mb": 2048}', **extra):
     form = {
         "id": plan_id,

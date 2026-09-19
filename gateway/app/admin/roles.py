@@ -47,8 +47,8 @@ _CHANGEABLE = {
 
 _REMOVABLE = {
     SUPPORT: set(),
-    ADMIN: {"Membership"},
-    SUPERADMIN: {"Membership"},
+    ADMIN: {"Membership", "SharedLink", "WorkspaceInvite"},
+    SUPERADMIN: {"Membership", "SharedLink", "WorkspaceInvite"},
 }
 
 _ADDABLE = {

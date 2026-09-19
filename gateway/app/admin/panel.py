@@ -25,7 +25,7 @@ from starlette.responses import RedirectResponse, Response
 
 from app import billing
 from app import email as outbound
-from app.admin import activity, janitor, roles
+from app.admin import activity, janitor, leftovers, roles
 from app.admin.audit import StaffAuditBackend
 from app.config import settings
 from app.database import SessionLocal, engine
@@ -1107,7 +1107,7 @@ class JanitorView(BaseView):
 
         section = request.query_params.get("section")
         if request.method == "POST":
-            kind, message = await self._act(request)
+            kind, message = await self._act(request, section)
             query = {"notice": message, "notice_kind": kind}
             if section:
                 query["section"] = section
@@ -1117,6 +1117,8 @@ class JanitorView(BaseView):
         may_revoke = "is_active" in roles.editable_fields(role, "APIKey")
         if section == "keys":
             return await self._keys_page(request, may_revoke)
+        if section in leftovers.SECTIONS:
+            return await self._leftover_page(request, leftovers.SECTIONS[section])
         return await self.templates.TemplateResponse(
             request,
             self.template,
@@ -1155,9 +1157,27 @@ class JanitorView(BaseView):
             },
         )
 
-    async def _act(self, request: Request):
+    async def _leftover_page(self, request: Request, leftover):
+        db = SessionLocal()
+        try:
+            rows = leftovers.rows(db, leftover)
+        finally:
+            db.close()
+        return await self.templates.TemplateResponse(
+            request,
+            "sqladmin/janitor_rows.html",
+            {
+                "leftover": leftover,
+                "rows": rows,
+                "may_delete": roles.can_remove(request.session.get(ROLE_KEY), leftover.model),
+            },
+        )
+
+    async def _act(self, request: Request, section=None):
         """Work out which action a submitted form asked for, and run it."""
         form = await request.form()
+        if section in leftovers.SECTIONS:
+            return await self._clear(request, leftovers.SECTIONS[section], form)
         if form.get("revoke_one"):
             return await self._revoke(request, [str(form["revoke_one"])])
         if form.get("notify_one"):
@@ -1251,6 +1271,33 @@ class JanitorView(BaseView):
         if not parts:
             return "info", "Nothing was sent. The keys may have been used since the page loaded."
         return ("error" if unreachable else "success"), " ".join(parts)
+
+    async def _clear(self, request: Request, leftover, form):
+        """Delete rows from one leftover list: one, the selected, or all of them.
+
+        Open to roles that may remove that model outright. The list is found
+        again before deleting, so only rows still on it can go.
+        """
+        if not roles.can_remove(request.session.get(ROLE_KEY), leftover.model):
+            return "error", f"Your role cannot delete {leftover.plural}."
+        if form.get("delete_one"):
+            ids = [str(form["delete_one"])]
+        elif form.get("intent") == "delete_all":
+            ids = None
+        else:
+            ids = [str(row_id) for row_id in form.getlist("row_ids")]
+            if not ids:
+                return "error", f"Select at least one {leftover.singular} first."
+        db = SessionLocal()
+        try:
+            removed = leftover.delete(db, ids)
+        finally:
+            db.close()
+        for row_id, summary in removed:
+            _record_action(request, "delete", leftover.model, row_id, {**summary, "deleted_from": "cleanup"})
+        if not removed:
+            return "info", f"Nothing was deleted. The {leftover.singular} may have changed since the page loaded."
+        return "success", f"Deleted {leftover.count(len(removed))}."
 
     async def _purge(self, request: Request):
         """Remove one workspace that has served its time in the trash.

@@ -56,6 +56,13 @@ def test_removing_a_membership_starts_at_admin():
     assert roles.can_remove(roles.SUPERADMIN, "Membership")
 
 
+def test_deleting_leftover_links_and_invites_starts_at_admin():
+    for model in ("SharedLink", "WorkspaceInvite"):
+        assert not roles.can_remove(roles.SUPPORT, model)
+        assert roles.can_remove(roles.ADMIN, model)
+        assert roles.can_remove(roles.SUPERADMIN, model)
+
+
 def test_every_staff_role_may_open_the_cleanup_page():
     for role in roles.ROLES:
         assert roles.can_sweep(role)

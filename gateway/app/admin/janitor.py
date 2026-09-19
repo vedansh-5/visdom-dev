@@ -227,6 +227,48 @@ def answered_invites(db):
     )
 
 
+def _slug(row):
+    return row.workspace.slug if row.workspace else "unknown"
+
+
+def link_summary(link):
+    return {
+        "workspace": _slug(link),
+        "issued_to": link.invite_email or "anyone",
+        "expired": _aware(link.expires_at).date().isoformat(),
+    }
+
+
+def invite_summary(invite):
+    return {"workspace": _slug(invite), "email": invite.email}
+
+
+def _delete_listed(db, rows, ids, describe):
+    wanted = None if ids is None else {str(row_id) for row_id in ids}
+    removed = []
+    for row in rows:
+        if wanted is None or str(row.id) in wanted:
+            removed.append((str(row.id), describe(row)))
+            db.delete(row)
+    db.commit()
+    return removed
+
+
+def delete_expired_links(db, link_ids=None):
+    """Delete shared links past their expiry: the ones named, or every one.
+
+    Which links have expired is worked out again rather than taken from the
+    page, so a link whose expiry was pushed back since it loaded is kept.
+    Returns ``(id, summary)`` for each one removed, for the audit trail.
+    """
+    return _delete_listed(db, expired_links(db), link_ids, link_summary)
+
+
+def delete_answered_invites(db, invite_ids=None):
+    """Delete invites whose recipient has since signed up, as above."""
+    return _delete_listed(db, answered_invites(db), invite_ids, invite_summary)
+
+
 def trashed_workspaces(db):
     """Workspaces in the trash, longest-held first, with their age in days.
 
@@ -326,18 +368,15 @@ def findings(db):
             "title": "Shared links past their expiry",
             "note": "These no longer grant anything.",
             "rows": [
-                f"{link.workspace.slug if link.workspace else 'unknown'} - "
-                f"{link.invite_email or 'anyone'}, expired {_aware(link.expires_at).date()}"
+                f"{_slug(link)} - {link.invite_email or 'anyone'}, expired {_aware(link.expires_at).date()}"
                 for link in expired_links(db)
             ],
+            "manage": {"section": "links", "label": "Manage these links"},
         },
         {
             "title": "Invites to people who already signed up",
             "note": "Registering should have turned these into memberships.",
-            "rows": [
-                f"{invite.email} for "
-                f"{invite.workspace.slug if invite.workspace else 'unknown'}"
-                for invite in answered_invites(db)
-            ],
+            "rows": [f"{invite.email} for {_slug(invite)}" for invite in answered_invites(db)],
+            "manage": {"section": "invites", "label": "Manage these invites"},
         },
     ]
