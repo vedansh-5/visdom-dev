@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.billing import DEFAULT_TIER, get_plan, ordered_plans, selectable
+from app.config import settings
 from app.dependencies import get_current_user, get_db
 from app.models import User
 from app.schemas import PlanResponse, SubscriptionResponse, SubscriptionUpdate
@@ -30,6 +31,7 @@ def _build_subscription(db: Session, user: User) -> dict:
     return {
         "tier": tier,
         "plan": plan,
+        "support_contact": settings.SUPPORT_CONTACT.strip() or None,
         "usage": {
             "workspaces": {"used": workspaces_used, "limit": limits["workspaces"]},
             "members": {"used": members_used, "limit": limits["members"]},
