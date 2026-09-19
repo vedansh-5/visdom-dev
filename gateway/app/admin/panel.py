@@ -892,19 +892,52 @@ class JanitorView(BaseView):
             return Response("Forbidden", status_code=403)
 
         if request.method == "POST":
+            form = await request.form()
+            act = self._revoke if form.get("intent") == "revoke" else self._purge
             return RedirectResponse(
-                request.url.replace(query=urlencode({"notice": await self._purge(request)})),
+                request.url.replace(query=urlencode({"notice": await act(request)})),
                 status_code=303,
             )
 
+        role = request.session.get(ROLE_KEY)
         return await self.templates.TemplateResponse(
             request,
             self.template,
             {
                 "notice": request.query_params.get("notice"),
-                "may_purge": request.session.get(ROLE_KEY) == roles.SUPERADMIN,
+                "may_purge": role == roles.SUPERADMIN,
+                "may_revoke": "is_active" in roles.editable_fields(role, "APIKey"),
             },
         )
+
+    async def _revoke(self, request: Request):
+        """Switch off unused API keys, one named key or every one listed.
+
+        Open to any role that may switch a key off from the API keys view, since
+        it is the same change made from a different page. Which keys count as
+        unused is worked out again rather than taken from the form.
+        """
+        role = request.session.get(ROLE_KEY)
+        if "is_active" not in roles.editable_fields(role, "APIKey"):
+            return "Your role cannot revoke keys."
+
+        form = await request.form()
+        key_id = str(form.get("key_id") or "")
+        db = SessionLocal()
+        try:
+            revoked = janitor.revoke_unused_keys(db, [key_id] if key_id else None)
+        finally:
+            db.close()
+
+        for revoked_id, _name in revoked:
+            _record_action(
+                request, "update", "APIKey", revoked_id,
+                {"is_active": False, "revoked_from": "cleanup"},
+            )
+        if not revoked:
+            return "Nothing was revoked. The key may have been used since the page loaded."
+        count = len(revoked)
+        return f"Revoked {count} unused key{'' if count == 1 else 's'}."
 
     async def _purge(self, request: Request):
         """Remove one workspace that has served its time in the trash.
@@ -927,18 +960,18 @@ class JanitorView(BaseView):
             return str(exc) or "That workspace could not be purged."
         finally:
             db.close()
-        _record_purge(request, raw_id, slug)
+        _record_action(request, "delete", "Workspace", raw_id, {"purged_from_trash": slug})
         return f"Purged {slug}."
 
 
-def _record_purge(request, workspace_id, slug):
-    """Write the audit entry for a purge.
+def _record_action(request, action, model, row_id, changes):
+    """Write the audit entry for a change made outside sqladmin's forms.
 
-    sqladmin emits its own entry for anything it changes through a form, but
-    this route is not one, so the trail is written here or a purge would be the
-    one change in the panel that leaves no record. A failure to log is not
-    allowed to fail the request: the row is already gone, and losing the record
-    is better than reporting an error for work that was done.
+    sqladmin records what it changes through a form, but the cleanup page's
+    actions are not form saves, so the trail is written here or they would be
+    the changes in the panel that leave no record. A failure to log is not
+    allowed to fail the request: the change is already made, and losing the
+    record is better than reporting an error for work that was done.
     """
     db = SessionLocal()
     try:
@@ -946,16 +979,16 @@ def _record_purge(request, workspace_id, slug):
             AdminAction(
                 admin_id=request.session.get(SESSION_KEY),
                 admin_email=request.session.get(EMAIL_KEY),
-                action="delete",
-                model="Workspace",
-                row_id=str(workspace_id),
-                changes={"purged_from_trash": slug},
+                action=action,
+                model=model,
+                row_id=str(row_id),
+                changes=changes,
             )
         )
         db.commit()
     except Exception:
         db.rollback()
-        logging.exception("could not record a purge in the audit trail")
+        logging.exception("could not record a %s on %s in the audit trail", action, model)
     finally:
         db.close()
 

@@ -93,6 +93,26 @@ def unused_keys(db):
     return stale
 
 
+def revoke_unused_keys(db, key_ids=None):
+    """Switch off keys the cleanup page lists as unused, all of them or some.
+
+    Checked against the list again here rather than trusted from the page,
+    since the route is reachable without it: a key used since the page loaded
+    is no longer unused and is left alone. Revoking only clears the active
+    flag, so a key switched off by mistake can be switched back on.
+    """
+    wanted = None if key_ids is None else {str(key_id) for key_id in key_ids}
+    revoked = []
+    for key, _why in unused_keys(db):
+        if wanted is not None and str(key.id) not in wanted:
+            continue
+        key.is_active = False
+        revoked.append((str(key.id), key.name))
+    if revoked:
+        db.commit()
+    return revoked
+
+
 def expired_links(db):
     """Shared links whose expiry has passed. They no longer work, so they are
     only a list of addresses somebody was once given access to."""
@@ -214,6 +234,9 @@ def findings(db):
             "rows": [
                 f"{key.name} ({key.owner.email if key.owner else 'unknown'}) - {why}"
                 for key, why in unused_keys(db)
+            ],
+            "revocable": [
+                {"id": str(key.id), "name": key.name} for key, _why in unused_keys(db)
             ],
         },
         {
