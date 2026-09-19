@@ -515,3 +515,123 @@ def test_an_active_workspace_is_not_evicted(admin_client, monkeypatch):
         follow_redirects=False,
     )
     assert called == []
+
+
+def _key(db, owner, name, *, age_days=5, used_days_ago=None):
+    import datetime
+
+    from app.models import APIKey
+
+    now = datetime.datetime.now(datetime.timezone.utc)
+    key = APIKey(
+        id=uuid.uuid4(),
+        name=name,
+        prefix="visdom_live",
+        hashed_key=uuid.uuid4().hex,
+        user_id=owner.id,
+        created_at=now - datetime.timedelta(days=age_days),
+        last_used_at=(
+            None if used_days_ago is None else now - datetime.timedelta(days=used_days_ago)
+        ),
+    )
+    db.add(key)
+    return key
+
+
+def _owner(db):
+    from app.models import User
+
+    user = User(
+        id=uuid.uuid4(),
+        email=f"owner-{uuid.uuid4().hex[:6]}@example.com",
+        username=f"owner-{uuid.uuid4().hex[:6]}",
+        password_hash="x",
+    )
+    db.add(user)
+    return user
+
+
+def test_the_cleanup_page_offers_to_revoke_an_unused_key(admin_client):
+    db = admin_client.staff_db
+    _key(db, _owner(db), "forgotten")
+    db.commit()
+
+    page = admin_client.get("/admin/janitor")
+    assert "Revoke forgotten" in page.text
+
+
+def test_revoking_one_unused_key_switches_it_off_and_records_it(admin_client):
+    from app.models import AdminAction, APIKey
+
+    db = admin_client.staff_db
+    owner = _owner(db)
+    forgotten = _key(db, owner, "forgotten")
+    other = _key(db, owner, "also-forgotten")
+    db.commit()
+
+    done = admin_client.post(
+        "/admin/janitor",
+        data={"intent": "revoke", "key_id": str(forgotten.id)},
+        follow_redirects=False,
+    )
+    assert done.status_code == 303
+    assert "Revoked+1+unused+key" in done.headers["location"]
+
+    db.expire_all()
+    assert db.get(APIKey, forgotten.id).is_active is False
+    assert db.get(APIKey, other.id).is_active is True
+    entry = db.query(AdminAction).filter(AdminAction.row_id == str(forgotten.id)).one()
+    assert entry.model == "APIKey"
+    assert entry.changes["is_active"] is False
+
+
+def test_revoke_all_switches_off_every_unused_key_and_nothing_else(admin_client):
+    from app.models import APIKey
+
+    db = admin_client.staff_db
+    owner = _owner(db)
+    stale = [_key(db, owner, f"stale-{n}") for n in range(3)]
+    in_use = _key(db, owner, "in-use", used_days_ago=1)
+    brand_new = _key(db, owner, "brand-new", age_days=0)
+    db.commit()
+
+    admin_client.post("/admin/janitor", data={"intent": "revoke"}, follow_redirects=False)
+
+    db.expire_all()
+    assert all(db.get(APIKey, key.id).is_active is False for key in stale)
+    assert db.get(APIKey, in_use.id).is_active is True
+    assert db.get(APIKey, brand_new.id).is_active is True
+
+
+def test_a_key_that_is_in_use_cannot_be_revoked_from_the_cleanup_page(admin_client):
+    """The route is reachable without the page, so the page's list is not
+    trusted: a key that is not on it is left alone."""
+    from app.models import APIKey
+
+    db = admin_client.staff_db
+    in_use = _key(db, _owner(db), "in-use", used_days_ago=1)
+    db.commit()
+
+    done = admin_client.post(
+        "/admin/janitor",
+        data={"intent": "revoke", "key_id": str(in_use.id)},
+        follow_redirects=False,
+    )
+    assert "Nothing+was+revoked" in done.headers["location"]
+    db.expire_all()
+    assert db.get(APIKey, in_use.id).is_active is True
+
+
+def test_a_key_name_cannot_reach_the_pages_javascript(admin_client):
+    """Key names are typed by users; the confirmation prompt must not quote one."""
+    db = admin_client.staff_db
+    _key(db, _owner(db), "x');alert(1);//")
+    db.commit()
+
+    import html
+    import re
+
+    page = admin_client.get("/admin/janitor").text
+    handlers = [html.unescape(h) for h in re.findall(r'onsubmit="([^"]*)"', page)]
+    assert handlers
+    assert not any("alert(1)" in handler for handler in handlers)
