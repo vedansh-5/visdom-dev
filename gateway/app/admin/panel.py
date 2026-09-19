@@ -162,6 +162,21 @@ class ChangeableView(RoleScopedView):
                 data.pop(key)
 
 
+def _to_the_minute(field, empty=""):
+    """A list column showing a moment to the minute.
+
+    Seconds, microseconds and the offset are noise in a table someone is
+    scanning, and on a narrow screen two full timestamps are enough to push the
+    last columns out of the card.
+    """
+
+    def render(model, _attr):
+        value = getattr(model, field, None)
+        return value.strftime("%Y-%m-%d %H:%M") if value else empty
+
+    return render
+
+
 class UserAdmin(ChangeableView, model=User):
     name = "User"
     name_plural = "Users"
@@ -185,6 +200,10 @@ class UserAdmin(ChangeableView, model=User):
     ]
     column_default_sort = (User.created_at, True)
     column_details_exclude_list = [User.password_hash]
+    column_formatters = {
+        User.created_at: _to_the_minute("created_at"),
+        User.last_login_at: _to_the_minute("last_login_at", "never"),
+    }
     form_columns = [User.is_active, User.tier]
 
 
@@ -627,7 +646,11 @@ class APIKeyAdmin(ChangeableView, model=APIKey):
         APIKey.last_used_at,
     ]
     column_labels = {APIKey.owner: "Owner", APIKey.last_used_at: "Last used"}
-    column_formatters = {APIKey.owner: lambda m, a: _email_of(m.owner)}
+    column_formatters = {
+        APIKey.owner: lambda m, a: _email_of(m.owner),
+        APIKey.created_at: _to_the_minute("created_at"),
+        APIKey.last_used_at: _to_the_minute("last_used_at", "never"),
+    }
     column_details_exclude_list = [APIKey.hashed_key]
     column_sortable_list = [APIKey.created_at, APIKey.last_used_at]
     form_columns = [APIKey.is_active]
@@ -646,7 +669,10 @@ class WorkspaceInviteAdmin(RoleScopedView, model=WorkspaceInvite):
         WorkspaceInvite.created_at,
     ]
     column_labels = {WorkspaceInvite.workspace: "Workspace"}
-    column_formatters = {WorkspaceInvite.workspace: lambda m, a: _slug_of(m.workspace)}
+    column_formatters = {
+        WorkspaceInvite.workspace: lambda m, a: _slug_of(m.workspace),
+        WorkspaceInvite.created_at: _to_the_minute("created_at"),
+    }
     column_searchable_list = [WorkspaceInvite.email]
 
 
@@ -663,7 +689,10 @@ class SharedLinkAdmin(RoleScopedView, model=SharedLink):
         SharedLink.expires_at,
     ]
     column_labels = {SharedLink.workspace: "Workspace", SharedLink.invite_email: "Issued to"}
-    column_formatters = {SharedLink.workspace: lambda m, a: _slug_of(m.workspace)}
+    column_formatters = {
+        SharedLink.workspace: lambda m, a: _slug_of(m.workspace),
+        SharedLink.expires_at: _to_the_minute("expires_at", "never"),
+    }
     column_details_exclude_list = [SharedLink.password_hash]
 
 
@@ -712,6 +741,10 @@ class AdminUserAdmin(RoleScopedView, model=AdminUser):
         AdminUser.created_at,
         AdminUser.last_login_at,
     ]
+    column_formatters = {
+        AdminUser.created_at: _to_the_minute("created_at"),
+        AdminUser.last_login_at: _to_the_minute("last_login_at", "never"),
+    }
     column_details_exclude_list = [AdminUser.password_hash]
     form_columns = [
         AdminUser.email,
@@ -1009,7 +1042,10 @@ class AdminActionAdmin(RoleScopedView, model=AdminAction):
         AdminAction.row_id: "Which",
         AdminAction.changes: "Set",
     }
-    column_formatters = {AdminAction.row_id: _audit_subject}
+    column_formatters = {
+        AdminAction.row_id: _audit_subject,
+        AdminAction.created_at: _to_the_minute("created_at"),
+    }
     column_sortable_list = [AdminAction.created_at, AdminAction.admin_email]
     column_default_sort = (AdminAction.created_at, True)
     column_searchable_list = [AdminAction.admin_email, AdminAction.model]
