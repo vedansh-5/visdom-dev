@@ -11,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app import usage_rollup
 from app.admin import mount_admin
-from app.admin.activity import activity_snapshot
+from app.admin.activity import activity_per_instance
 from app.config import settings
 from app.database import SessionLocal
 from app.routers import api_keys, auth, billing, health, visdom, workspaces
@@ -28,7 +28,7 @@ async def _sample_usage_forever(seconds: int) -> None:
         await asyncio.sleep(seconds)
         db = SessionLocal()
         try:
-            await asyncio.to_thread(usage_rollup.sample_once, db, activity_snapshot)
+            await asyncio.to_thread(usage_rollup.sample_once, db, activity_per_instance)
         except Exception:
             logging.exception("usage sample failed")
             db.rollback()

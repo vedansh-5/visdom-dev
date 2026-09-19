@@ -167,6 +167,26 @@ def activity_snapshot(timeout: float | None = None) -> dict:
     return {"answered": answered, "workspaces": merged}
 
 
+def activity_per_instance(timeout: float | None = None) -> list[tuple]:
+    """Each instance's own answer, unmerged, as (address, answered, entries).
+
+    The merged snapshot sums counters across instances, which is right for a
+    page showing what is happening and wrong for working out what is new: a
+    restart is only visible in the one instance that had it.
+    """
+    addresses = instance_addresses()
+    if not addresses:
+        return []
+    if timeout is None:
+        timeout = settings.VISDOM_ACTIVITY_TIMEOUT
+    with concurrent.futures.ThreadPoolExecutor(max_workers=len(addresses)) as pool:
+        answers = list(pool.map(lambda a: _ask(a, timeout), addresses))
+    return [
+        (address, ok, entries)
+        for address, (ok, entries) in zip(addresses, answers, strict=True)
+    ]
+
+
 def activity_by_workspace(timeout: float | None = None) -> dict[str, dict]:
     """Live viewer/writer counts keyed by workspace id, across all instances."""
     return activity_snapshot(timeout)["workspaces"]
