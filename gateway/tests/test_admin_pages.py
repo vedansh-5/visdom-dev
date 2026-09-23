@@ -292,6 +292,111 @@ def test_suspending_a_workspace_through_the_form_actually_saves(admin_client):
     assert admin_client.staff_db.get(Workspace, workspace.id).is_active is False
 
 
+def _account(db, email="locked-out@example.com", password="their-own-password"):
+    from app.models import User
+    from app.security import get_password_hash
+
+    user = User(
+        id=uuid.uuid4(),
+        email=email,
+        username=email.split("@")[0],
+        password_hash=get_password_hash(password),
+        tier="free",
+    )
+    db.add(user)
+    db.commit()
+    return user
+
+
+def _user_form(user, **extra):
+    form = {"id": str(user.id), "is_active": "true", "tier": user.tier or "free"}
+    form.update(extra)
+    return form
+
+
+def test_a_superadmin_can_set_a_password_for_a_locked_out_account(admin_client):
+    from app.models import User
+    from app.security import verify_password
+
+    db = admin_client.staff_db
+    user = _account(db)
+    before = user.token_version or 0
+
+    saved = admin_client.post(
+        f"/admin/user/edit/{user.id}",
+        data=_user_form(user, password_hash="a-long-enough-password"),
+        follow_redirects=False,
+    )
+    assert saved.status_code in (302, 303), saved.text
+
+    db.expire_all()
+    changed = db.get(User, user.id)
+    assert verify_password("a-long-enough-password", changed.password_hash)
+    assert changed.token_version == before + 1
+
+
+def test_an_ordinary_save_leaves_the_password_alone(admin_client):
+    """The field is optional, so suspending an account must not demand one."""
+    from app.models import User
+    from app.security import verify_password
+
+    db = admin_client.staff_db
+    user = _account(db, email="still-mine@example.com")
+
+    saved = admin_client.post(
+        f"/admin/user/edit/{user.id}",
+        data=_user_form(user, is_active="false", password_hash=""),
+        follow_redirects=False,
+    )
+    assert saved.status_code in (302, 303), saved.text
+
+    db.expire_all()
+    kept = db.get(User, user.id)
+    assert kept.is_active is False
+    assert verify_password("their-own-password", kept.password_hash)
+    assert (kept.token_version or 0) == 0
+
+
+def test_the_form_never_carries_the_current_hash(admin_client):
+    db = admin_client.staff_db
+    user = _account(db, email="no-leak@example.com")
+
+    page = admin_client.get(f"/admin/user/edit/{user.id}").text
+    assert user.password_hash not in page
+    assert 'id="password_hash"' in page
+
+
+def test_support_cannot_set_a_password(admin_client):
+    from app.models import User
+    from app.security import verify_password
+
+    db = admin_client.staff_db
+    user = _account(db, email="not-yours@example.com")
+    db.add(
+        AdminUser(
+            id=uuid.uuid4(),
+            email="support-pw@example.com",
+            password_hash=get_password_hash("supportpassword"),
+            role="support",
+            is_active=True,
+        )
+    )
+    db.commit()
+    admin_client.post(
+        "/admin/login", data={"username": "support-pw@example.com", "password": "supportpassword"}
+    )
+
+    refused = admin_client.post(
+        f"/admin/user/edit/{user.id}",
+        data=_user_form(user, password_hash="a-long-enough-password"),
+        follow_redirects=False,
+    )
+    assert refused.status_code not in (302, 303)
+
+    db.expire_all()
+    assert verify_password("their-own-password", db.get(User, user.id).password_hash)
+
+
 def _staff_form(email, role="support", password="a-long-enough-password"):
     return {"email": email, "role": role, "password_hash": password}
 

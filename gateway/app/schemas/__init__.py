@@ -62,6 +62,11 @@ class PasswordResetRequested(BaseModel):
     support_contact: str
 
 
+class PasswordChange(BaseModel):
+    current_password: str = Field(..., min_length=1, max_length=100)
+    new_password: str = Field(..., min_length=6, max_length=100)
+
+
 class PasswordResetConfirm(BaseModel):
     token: str = Field(..., min_length=1, max_length=200)
     password: str = Field(..., min_length=6, max_length=100)

@@ -48,6 +48,8 @@ SESSION_KEY = "admin_user"
 ROLE_KEY = "admin_role"
 EMAIL_KEY = "admin_email"
 
+MIN_SET_PASSWORD = 12
+
 # Environment names that should make the panel visibly alarming to be looking at.
 DANGEROUS_ENVIRONMENTS = ("prod", "production", "live")
 
@@ -230,21 +232,64 @@ class UserAdmin(ChangeableView, model=User):
         User.created_at: _to_the_minute("created_at"),
         User.last_login_at: _to_the_minute("last_login_at", "never"),
     }
-    form_columns = [User.is_active, User.tier]
+    form_columns = [User.is_active, User.tier, User.password_hash]
     form_include_pk = True
-    form_overrides = {"tier": wtforms.SelectField}
-    form_args = {"tier": {"label": "Plan", "choices": lambda: _tier_choices()}}
+    form_overrides = {"tier": wtforms.SelectField, "password_hash": wtforms.PasswordField}
+    form_args = {
+        "tier": {"label": "Plan", "choices": lambda: _tier_choices()},
+        "password_hash": {
+            "label": "Set a new password",
+            "description": (
+                f"Superadmins only, for an account locked out while email is not set up. "
+                f"At least {MIN_SET_PASSWORD} characters. Leave blank to keep the current "
+                f"one; setting one signs the account out everywhere."
+            ),
+            "validators": [
+                wtforms.validators.Optional(),
+                wtforms.validators.Length(min=MIN_SET_PASSWORD),
+            ],
+        },
+    }
+
+    async def scaffold_form(self, rules=None):
+        """Make the password field optional, which its column cannot say.
+
+        ``password_hash`` is not nullable, so sqladmin gives it a required
+        validator, and every ordinary save of an account would then demand a
+        new password before it would go through. Nothing else on this form is
+        write-only, so the rule is dropped here rather than in the converter.
+        """
+        form = await super().scaffold_form(rules)
+        field = form.password_hash
+        field.kwargs["validators"] = [
+            rule
+            for rule in field.kwargs.get("validators", [])
+            if not isinstance(rule, wtforms.validators.InputRequired)
+        ]
+        return form
 
     async def on_model_change(
         self, data: dict, model, is_created: bool, request: Request
     ) -> None:
-        """Refuse moving an account onto a plan staff may not assign.
+        """Hash a submitted password, then refuse a plan staff may not assign.
 
-        Only a change is checked. An account already on an archived plan keeps
-        it, so saving that account for an unrelated reason, such as suspending
-        it, must not be refused for a plan nobody is changing.
+        The password field is optional and empty on every ordinary save, so a
+        blank one is dropped before the role check rather than being refused or
+        written over the current hash. A submitted one is hashed here, which is
+        the only place the plaintext exists, and bumps ``token_version`` so the
+        sessions the old password opened are closed.
+
+        Only a plan change is checked. An account already on an archived plan
+        keeps it, so saving that account for an unrelated reason, such as
+        suspending it, must not be refused for a plan nobody is changing.
         """
+        chosen = (data.get("password_hash") or "").strip()
+        if not chosen:
+            data.pop("password_hash", None)
         await super().on_model_change(data, model, is_created, request)
+        if chosen:
+            data["password_hash"] = get_password_hash(chosen)
+            model.token_version = (model.token_version or 0) + 1
         tier = data.get("tier")
         if tier is None or tier == model.tier:
             return
@@ -749,9 +794,6 @@ class SharedLinkAdmin(RoleScopedView, model=SharedLink):
     column_details_exclude_list = [SharedLink.password_hash]
 
 
-MIN_STAFF_PASSWORD = 12
-
-
 def _other_active_superadmins(db, admin):
     """Superadmins other than this one who can still sign in.
 
@@ -973,8 +1015,8 @@ class AdminUserAdmin(RoleScopedView, model=AdminUser):
         "role": {"choices": [(name, name) for name in roles.ROLES]},
         "password_hash": {
             "label": "Password",
-            "description": f"At least {MIN_STAFF_PASSWORD} characters. Shown to nobody after this.",
-            "validators": [wtforms.validators.Length(min=MIN_STAFF_PASSWORD)],
+            "description": f"At least {MIN_SET_PASSWORD} characters. Shown to nobody after this.",
+            "validators": [wtforms.validators.Length(min=MIN_SET_PASSWORD)],
         },
     }
 
@@ -1009,10 +1051,10 @@ class AdminUserAdmin(RoleScopedView, model=AdminUser):
             )
 
         password = data.get("password_hash") or ""
-        if len(password) < MIN_STAFF_PASSWORD:
+        if len(password) < MIN_SET_PASSWORD:
             raise HTTPException(
                 status_code=400,
-                detail=f"The password must be at least {MIN_STAFF_PASSWORD} characters.",
+                detail=f"The password must be at least {MIN_SET_PASSWORD} characters.",
             )
         data["password_hash"] = get_password_hash(password)
 

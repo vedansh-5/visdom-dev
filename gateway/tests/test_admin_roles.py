@@ -63,6 +63,12 @@ def test_deleting_leftover_links_and_invites_starts_at_admin():
         assert roles.can_remove(roles.SUPERADMIN, model)
 
 
+def test_only_a_superadmin_may_set_someones_password():
+    assert "password_hash" not in roles.editable_fields(roles.SUPPORT, "User")
+    assert "password_hash" not in roles.editable_fields(roles.ADMIN, "User")
+    assert "password_hash" in roles.editable_fields(roles.SUPERADMIN, "User")
+
+
 def test_every_staff_role_may_open_the_cleanup_page():
     for role in roles.ROLES:
         assert roles.can_sweep(role)

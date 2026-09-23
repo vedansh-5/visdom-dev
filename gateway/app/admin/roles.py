@@ -74,6 +74,7 @@ _EDITABLE_FIELDS = {
     ADMIN: _ENTITLEMENT_FIELDS,
     SUPERADMIN: dict(
         _ENTITLEMENT_FIELDS,
+        User=_ENTITLEMENT_FIELDS["User"] | {"password_hash"},
         AdminUser={"is_active"},
         Plan={
             "name",
