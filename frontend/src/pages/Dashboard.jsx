@@ -229,7 +229,9 @@ fetchWorkspaces();
               />
             )}
 
-            {activeTab === 'keys' && <KeysTab workspaces={workspaces} />}
+            {activeTab === 'keys' && (
+              <KeysTab workspaces={workspaces} activeWorkspace={activeWorkspace} />
+            )}
 
             {activeTab === 'shared' && activeWorkspace && (
               <SharedLinksTab workspaceId={activeWorkspace.id} isAdmin={isAdmin} />
