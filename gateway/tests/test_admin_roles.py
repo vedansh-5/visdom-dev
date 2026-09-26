@@ -42,7 +42,7 @@ def test_support_reads_the_same_records_as_an_admin():
 def test_setting_a_tier_is_an_entitlement_decision():
     assert roles.editable_fields(roles.SUPPORT, "User") == {"is_active"}
     assert roles.editable_fields(roles.ADMIN, "User") == {"is_active", "tier"}
-    assert roles.editable_fields(roles.SUPERADMIN, "User") == {"is_active", "tier"}
+    assert roles.editable_fields(roles.SUPERADMIN, "User") == {"is_active", "tier", "password_hash"}
 
 
 def test_support_may_suspend_a_workspace_but_not_start_its_deletion():
