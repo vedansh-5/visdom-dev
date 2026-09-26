@@ -55,6 +55,13 @@ def issue(db, user: User, now: datetime.datetime | None = None) -> str | None:
     return token
 
 
+def spend_all(db, user: User, now: datetime.datetime | None = None) -> None:
+    """Mark every link this account still holds as used, without committing."""
+    db.query(PasswordReset).filter(
+        PasswordReset.user_id == user.id, PasswordReset.used_at.is_(None)
+    ).update({PasswordReset.used_at: now or utcnow()}, synchronize_session=False)
+
+
 def redeem(db, token: str, password: str, now: datetime.datetime | None = None) -> User | None:
     """Set ``password`` on the account ``token`` belongs to, or None if the link is no good.
 
@@ -77,8 +84,6 @@ def redeem(db, token: str, password: str, now: datetime.datetime | None = None) 
         return None
     user.password_hash = get_password_hash(password)
     user.token_version = (user.token_version or 0) + 1
-    db.query(PasswordReset).filter(PasswordReset.user_id == user.id, PasswordReset.used_at.is_(None)).update(
-        {PasswordReset.used_at: now}, synchronize_session=False
-    )
+    spend_all(db, user, now)
     db.commit()
     return user

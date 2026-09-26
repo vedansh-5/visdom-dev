@@ -42,7 +42,7 @@ def test_support_reads_the_same_records_as_an_admin():
 def test_setting_a_tier_is_an_entitlement_decision():
     assert roles.editable_fields(roles.SUPPORT, "User") == {"is_active"}
     assert roles.editable_fields(roles.ADMIN, "User") == {"is_active", "tier"}
-    assert roles.editable_fields(roles.SUPERADMIN, "User") == {"is_active", "tier"}
+    assert roles.editable_fields(roles.SUPERADMIN, "User") == {"is_active", "tier", "password_hash"}
 
 
 def test_support_may_suspend_a_workspace_but_not_start_its_deletion():
@@ -61,6 +61,12 @@ def test_deleting_leftover_links_and_invites_starts_at_admin():
         assert not roles.can_remove(roles.SUPPORT, model)
         assert roles.can_remove(roles.ADMIN, model)
         assert roles.can_remove(roles.SUPERADMIN, model)
+
+
+def test_only_a_superadmin_may_set_someones_password():
+    assert "password_hash" not in roles.editable_fields(roles.SUPPORT, "User")
+    assert "password_hash" not in roles.editable_fields(roles.ADMIN, "User")
+    assert "password_hash" in roles.editable_fields(roles.SUPERADMIN, "User")
 
 
 def test_every_staff_role_may_open_the_cleanup_page():
