@@ -37,6 +37,9 @@ class Settings(BaseSettings):
     ADMIN_ENVIRONMENT: str = ""
     VISDOM_ACTIVITY_TIMEOUT: float = 1.0
     USAGE_SAMPLE_SECONDS: int = 60
+    RETENTION_SWEEP_HOURS: int = 24
+    RETENTION_ENFORCE: bool = False
+    RETENTION_TIMEOUT: float = 15.0
 
     model_config = SettingsConfigDict(env_file=".env")
 

@@ -76,6 +76,8 @@ services:
       DB_MAX_OVERFLOW: ${DB_MAX_OVERFLOW:-5}
       VISDOM_SERVERS: ${VISDOM_SERVERS}
       ADMIN_ENVIRONMENT: ${ADMIN_ENVIRONMENT:-}
+      RETENTION_SWEEP_HOURS: ${RETENTION_SWEEP_HOURS:-24}
+      RETENTION_ENFORCE: ${RETENTION_ENFORCE:-False}
     depends_on:
       db:
         condition: service_healthy
