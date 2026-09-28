@@ -1,0 +1,90 @@
+{% extends "sqladmin/layout.html" %}
+
+{% block content_header %}
+<h1 class="ap-page-title">Plan moves</h1>
+<div class="ap-page-subtitle">Move every account on one plan to another.</div>
+{% endblock %}
+
+{% block content %}
+{% include 'sqladmin/cleanup_styles.html' %}
+<style>
+  .ap-move-form {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 12px;
+    padding: 18px;
+  }
+
+  .ap-move-field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    font-size: 13px;
+    color: var(--ap-ink-soft);
+  }
+
+  .ap-move-field select {
+    min-width: 200px;
+    padding: 7px 10px;
+    border: 1px solid var(--ap-hairline);
+    border-radius: var(--ap-radius-sm);
+    font-size: 14px;
+    background: var(--ap-surface);
+    color: var(--ap-ink);
+  }
+</style>
+
+<div class="col-12">
+  <p class="ap-explain">
+    Everyone on the plan you pick is moved to the other one. To give people more room without
+    moving anybody, change what their current plan allows on the Plans page instead: that reaches
+    every account on it at once, including accounts that register later.
+  </p>
+
+  <div class="card">
+    <div class="table-responsive">
+      <table class="table card-table table-vcenter">
+        <thead>
+          <tr>
+            <th>Plan</th>
+            <th>Accounts on it</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for plan in plans %}
+          <tr>
+            <td>{{ plan.name }} <span class="ap-bulk-label">{{ plan.id }}</span></td>
+            <td>{{ plan.accounts }}</td>
+            <td>{% if plan.archived %}<span class="ap-bulk-label">archived</span>{% endif %}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <form method="post" class="ap-move-form">
+      <label class="ap-move-field">
+        Move everyone on
+        <select name="from_plan" required>
+          {% for plan in plans %}
+          <option value="{{ plan.id }}">{{ plan.name }} ({{ plan.accounts }})</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label class="ap-move-field">
+        to
+        <select name="to_plan" required>
+          {% for plan in movable %}
+          <option value="{{ plan.id }}">{{ plan.name }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <button type="submit" class="ap-act is-danger" data-danger data-confirm-label="Move them"
+        data-confirm-title="Move every account on that plan?"
+        data-confirm="Each account keeps its workspaces and its data. Only what it is allowed changes, and it changes at once.">Move accounts</button>
+    </form>
+  </div>
+</div>
+{% endblock %}
