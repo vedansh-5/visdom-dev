@@ -131,7 +131,6 @@ def _to_shared_link_response(link: SharedLink) -> SharedLinkResponse:
     )
 
 
-# --- WORKSPACES ---
 @router.post("", response_model=MyWorkspaceResponse, status_code=status.HTTP_201_CREATED)
 def create_workspace(
     workspace_in: WorkspaceCreate,
@@ -149,7 +148,7 @@ def create_workspace(
     refuse_if_at_limit(db, current_user, "workspaces")
     workspace = Workspace(name=workspace_in.name, slug=workspace_in.slug, created_by=current_user.id)
     db.add(workspace)
-    db.flush()  # populate workspace.id before creating the membership row
+    db.flush()
 
     membership = Membership(user_id=current_user.id, workspace_id=workspace.id, role="admin")
     db.add(membership)
@@ -200,9 +199,6 @@ def delete_workspace(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workspace not found.")
     workspace.trashed_at = utcnow()
     db.commit()
-    # After the commit, so a failed delete disconnects nobody. An owner who
-    # deletes a workspace with a tab still open on it should not keep watching
-    # it, and a live socket never resolves again on its own.
     evict_workspace(workspace.slug, "this workspace has been deleted")
 
 
@@ -225,7 +221,6 @@ def set_workspace_starred(
     return _to_my_workspace_response(workspace, membership)
 
 
-# --- MEMBERSHIPS ---
 @router.post("/{workspace_id}/members", response_model=MemberResponse, status_code=status.HTTP_201_CREATED)
 def invite_member(
     workspace_id: uuid.UUID,
@@ -490,7 +485,6 @@ def list_pending_invites(
     return [PendingInviteResponse(workspace=ws, role=membership.role) for ws, membership in rows]
 
 
-# --- SHARED LINKS ---
 @router.post("/{workspace_id}/share", response_model=SharedLinkResponse, status_code=status.HTTP_201_CREATED)
 def create_shared_link(
     workspace_id: uuid.UUID,

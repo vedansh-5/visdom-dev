@@ -72,12 +72,12 @@ class User(Base):
     token_version = Column(Integer, default=0, server_default="0", nullable=False)
     created_at = Column(DateTime(timezone=True), default=utcnow)
     last_login_at = Column(DateTime(timezone=True), nullable=True)
+    deletion_requested_at = Column(DateTime(timezone=True), nullable=True)
 
     __table_args__ = (
         Index("ix_users_username_lower", func.lower(username), unique=True),
     )
 
-    # Relationships
     api_keys = relationship("APIKey", back_populates="owner", cascade="all, delete-orphan")
     memberships = relationship("Membership", back_populates="user", cascade="all, delete-orphan")
 
@@ -86,9 +86,9 @@ class APIKey(Base):
     __tablename__ = "api_keys"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    name = Column(String, nullable=False)  # e.g., "training-cluster"
-    prefix = Column(String, nullable=False)  # e.g., "visdom_live"
-    hashed_key = Column(String, unique=True, index=True, nullable=False)  # SHA-256 hash
+    name = Column(String, nullable=False)
+    prefix = Column(String, nullable=False)
+    hashed_key = Column(String, unique=True, index=True, nullable=False)
     is_active = Column(Boolean, default=True, nullable=False, server_default="true")
     scope = Column(String, nullable=False, default="org", server_default="org")
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
@@ -98,7 +98,6 @@ class APIKey(Base):
     owner_notified_at = Column(DateTime(timezone=True), nullable=True)
     revoke_after = Column(DateTime(timezone=True), nullable=True)
 
-    # Relationships
     owner = relationship("User", back_populates="api_keys")
     workspaces = relationship("Workspace", secondary="api_key_workspaces")
 
@@ -115,13 +114,12 @@ class Workspace(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name = Column(String, nullable=False)
-    slug = Column(String, unique=True, nullable=False, index=True)  # e.g., 'nlp-labs'
+    slug = Column(String, unique=True, nullable=False, index=True)
     created_by = Column(UUID(as_uuid=True), ForeignKey("users.id"))
     created_at = Column(DateTime(timezone=True), default=utcnow)
     is_active = Column(Boolean, default=True, nullable=False, server_default="true")
     trashed_at = Column(DateTime(timezone=True), nullable=True)
 
-    # Relationships
     creator = relationship("User", foreign_keys=[created_by])
     memberships = relationship("Membership", back_populates="workspace", cascade="all, delete-orphan")
     shared_links = relationship("SharedLink", back_populates="workspace", cascade="all, delete-orphan")
@@ -132,11 +130,10 @@ class Membership(Base):
 
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), primary_key=True)
     workspace_id = Column(UUID(as_uuid=True), ForeignKey("workspaces.id"), primary_key=True)
-    role = Column(String, default="member")  # admin, member, viewer
+    role = Column(String, default="member")
     starred = Column(Boolean, default=False)
     status = Column(String, nullable=False, default="active", server_default="active")
 
-    # Relationships
     user = relationship("User", back_populates="memberships")
     workspace = relationship("Workspace", back_populates="memberships")
 
@@ -155,21 +152,19 @@ class WorkspaceInvite(Base):
         UniqueConstraint("workspace_id", "email", name="uq_workspace_invites_workspace_email"),
     )
 
-    # Relationships
     workspace = relationship("Workspace")
 
 
 class SharedLink(Base):
     __tablename__ = "shared_links"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)  # The secret public token
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     workspace_id = Column(UUID(as_uuid=True), ForeignKey("workspaces.id"), nullable=False)
-    role = Column(String, default="member")  # role granted to whoever joins via this link
+    role = Column(String, default="member")
     expires_at = Column(DateTime(timezone=True), nullable=True)
-    password_hash = Column(String, nullable=True)  # Optional link password protection
+    password_hash = Column(String, nullable=True)
     invite_email = Column(String, nullable=True)
 
-    # Relationships
     workspace = relationship("Workspace", back_populates="shared_links")
 
 

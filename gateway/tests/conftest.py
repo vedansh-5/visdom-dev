@@ -20,7 +20,6 @@ from app.main import app
 
 security.gensalt = lambda: bcrypt.gensalt(rounds=4)
 
-# Setup a clean in-memory SQLite database for testing
 SQLALCHEMY_DATABASE_URL = "sqlite:///:memory:"
 
 engine = create_engine(

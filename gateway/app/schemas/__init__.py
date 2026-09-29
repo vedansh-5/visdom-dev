@@ -17,7 +17,6 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field, model_validator
 
 from app.username import USERNAME_PATTERN as _USERNAME_RE
 
-# --- USER SCHEMAS ---
 USERNAME_PATTERN = _USERNAME_RE.pattern
 
 
@@ -72,19 +71,38 @@ class PasswordResetConfirm(BaseModel):
     password: str = Field(..., min_length=6, max_length=100)
 
 
-# --- TOKEN SCHEMAS ---
+class AccountDeletionRequest(BaseModel):
+    password: str = Field(..., min_length=1, max_length=100)
+
+
+class DeletionWorkspace(BaseModel):
+    id: uuid.UUID
+    name: str
+    slug: str
+    reason: Optional[str] = None
+
+
+class DeletionPreview(BaseModel):
+    grace_days: int
+    blockers: List[DeletionWorkspace]
+    leaving_with: List[DeletionWorkspace]
+
+
+class DeletionScheduled(BaseModel):
+    delete_after: datetime.datetime
+
+
 class Token(BaseModel):
     access_token: str
     token_type: str = "bearer"
-
+    deletion_cancelled: bool = False
 
 
 class TokenPayload(BaseModel):
-    sub: Optional[str] = None  # Typically holds the User ID (UUID string)
+    sub: Optional[str] = None
     type: Optional[str] = None
 
 
-# --- API KEY SCHEMAS ---
 class APIKeyWorkspaceSummary(BaseModel):
     id: uuid.UUID
     name: str
@@ -123,10 +141,9 @@ class APIKeyResponse(BaseModel):
 
 
 class APIKeyCreatedResponse(APIKeyResponse):
-    raw_key: str  # Only returned once on creation
+    raw_key: str
 
 
-# --- BILLING SCHEMAS ---
 class PlanLimits(BaseModel):
     workspaces: Optional[int] = None
     members: Optional[int] = None

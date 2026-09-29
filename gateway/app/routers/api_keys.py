@@ -51,18 +51,15 @@ def create_api_key(
             )
         workspaces = [m.workspace for m in memberships]
 
-    # Generate key: prefix + 32 random characters
     raw_secret = secrets.token_hex(16)
     prefix = settings.API_KEY_PREFIX
     raw_key = f"{prefix}_{raw_secret}"
 
-    # Hash the key using SHA-256
     hashed_key = hashlib.sha256(raw_key.encode("utf-8")).hexdigest()
 
-    # Save to database
     db_key = APIKey(
         name=key_in.name,
-        prefix=f"{prefix}_{raw_secret[:6]}...",  # Displayable mask
+        prefix=f"{prefix}_{raw_secret[:6]}...",
         hashed_key=hashed_key,
         user_id=current_user.id,
         scope=key_in.scope,

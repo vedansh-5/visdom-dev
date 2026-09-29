@@ -2,7 +2,7 @@
 @import url('https://fonts.googleapis.com/css2?family=Open+Sans:wght@300;400;600;700&display=swap');
 
 :root {
-  --visdom-bg: #3d5b99; /* Classic Visdom blue background */
+  --visdom-bg: #3d5b99;
   --navbar-bg: #ffffff;
   --navbar-border: #dcdcdc;
   --panel-bg: #ffffff;
@@ -14,9 +14,9 @@
   --btn-border: #cccccc;
   --btn-active: #e5e5e5;
   --success-bg: #5cb85c;
-  --danger-bg: #d9534f; /* Visdom red status badge color */
+  --danger-bg: #d9534f;
   --font-sans: 'Open Sans', system-ui, -apple-system, sans-serif;
-  
+
   font-family: var(--font-sans);
   color-scheme: light;
   color: var(--text-primary);
@@ -42,7 +42,6 @@ body {
   flex-direction: column;
 }
 
-/* Visdom Top Navbar */
 .visdom-navbar {
   background: var(--navbar-bg);
   border-bottom: 1px solid var(--navbar-border);
@@ -63,11 +62,10 @@ body {
   text-decoration: none;
 }
 
-/* Flat Toolbars / Panels */
 .visdom-panel {
   background: var(--panel-bg);
   border: 1px solid var(--panel-border);
-  border-radius: 2px; /* Flat corners like Visdom */
+  border-radius: 2px;
   padding: 16px;
   box-shadow: 0 1px 3px rgba(0,0,0,0.1);
   color: var(--text-primary);
@@ -84,7 +82,6 @@ body {
   align-items: center;
 }
 
-/* Flat Inputs */
 .visdom-input {
   height: 28px;
   padding: 4px 8px;
@@ -101,7 +98,6 @@ body {
   border-color: #66afe9;
 }
 
-/* Flat Tool Buttons */
 .visdom-btn {
   height: 28px;
   padding: 0 12px;
@@ -139,7 +135,6 @@ body {
   border-color: #ac2925;
 }
 
-/* Visdom Status Badges */
 .visdom-badge {
   display: inline-flex;
   align-items: center;
@@ -162,7 +157,6 @@ body {
   background-color: var(--danger-bg);
 }
 
-/* Auth Pages Centering Layout */
 .auth-wrapper {
   background-color: #f0f2f5;
   min-height: 100vh;
@@ -177,15 +171,6 @@ body {
   max-width: 400px;
   padding: 24px;
 }
-
-/* ============================================================
-   Milestone 2: Workspace Console
-   A left-sidebar admin console themed as a Visdom extension:
-   Visdom's classic navy (#3b5998) for the sidebar/brand chrome,
-   blended with the flat, Open-Sans, small-radius card language of
-   FOSSASIA's eventyay/pretalx product family (accent blue #2185d0).
-   Scoped to `.gc-*` classes so Login/Register above are untouched.
-   ============================================================ */
 
 :root {
   --vc-navy: #3b5998;
@@ -215,7 +200,6 @@ body {
   font-family: var(--font-sans);
 }
 
-/* Sidebar */
 .gc-sidebar {
   width: 240px;
   flex-shrink: 0;
@@ -310,7 +294,6 @@ body {
   box-sizing: border-box;
 }
 
-/* Card surface primitive (matches Visdom's flat .visdom-panel + eventyay's card radius/shadow) */
 .gc-panel {
   background: var(--vc-surface);
   border: 1px solid var(--vc-border);
@@ -345,7 +328,6 @@ body {
   margin: 0 0 16px 0;
 }
 
-/* Workspace switcher (lives in the sidebar, under the logo) */
 .gc-ws-switcher { position: relative; margin-top: 16px; }
 
 .gc-ws-trigger {
@@ -431,7 +413,6 @@ body {
 
 .gc-ws-add-btn:hover { background: rgba(33, 133, 208, 0.1); }
 
-/* Sidebar nav links (was a top tab bar) */
 .gc-tab {
   display: flex;
   align-items: center;
@@ -463,8 +444,6 @@ body {
   border-top: 1px solid rgba(255, 255, 255, 0.1);
 }
 
-
-/* Buttons */
 .gc-btn {
   height: 32px;
   padding: 0 14px;
@@ -502,7 +481,6 @@ body {
 
 .gc-btn-icon { width: 32px; padding: 0; }
 
-/* Sidebar-local button variant (readable against the navy background) */
 .gc-sidebar .gc-btn {
   background: rgba(255, 255, 255, 0.08);
   border-color: rgba(255, 255, 255, 0.2);
@@ -511,7 +489,6 @@ body {
 
 .gc-sidebar .gc-btn:hover { background: rgba(255, 255, 255, 0.16); }
 
-/* Inputs */
 .gc-label {
   display: block;
   font-size: 12px;
@@ -535,7 +512,6 @@ body {
 .gc-input::placeholder { color: #adb5bd; }
 .gc-input:focus, .gc-select:focus { outline: none; border-color: var(--vc-blue); box-shadow: 0 0 0 3px rgba(33, 133, 208, 0.15); }
 
-/* Badges */
 .gc-badge {
   display: inline-flex;
   align-items: center;
@@ -555,7 +531,6 @@ body {
 .gc-badge-active { background: rgba(40, 167, 69, 0.12); color: #1e7e34; border: 1px solid rgba(40, 167, 69, 0.3); }
 .gc-badge-expired { background: rgba(217, 83, 79, 0.12); color: #b52b27; border: 1px solid rgba(217, 83, 79, 0.3); }
 
-/* Rows */
 .gc-row {
   display: flex;
   align-items: center;
@@ -581,7 +556,6 @@ body {
   font-size: 13px;
 }
 
-/* Modal */
 .gc-modal-overlay {
   position: fixed;
   inset: 0;
@@ -693,7 +667,6 @@ body {
   gap: 10px;
 }
 
-/* Billing */
 .gc-pricing-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
@@ -774,7 +747,6 @@ body {
   background: var(--vc-blue);
 }
 
-/* Key Row List */
 .key-item {
   display: flex;
   justify-content: space-between;

@@ -183,7 +183,6 @@ def test_join_link_addressed_to_someone_else(client, make_user, make_workspace):
     assert refused.status_code == 403
     assert refused.json()["detail"] == "This invite was issued to a different email address."
 
-    # The address it was issued to still gets in, matched without regard to case.
     accepted = client.post(
         f"{WORKSPACES}/share/{link['id']}/join", json={}, headers=invited["headers"]
     )

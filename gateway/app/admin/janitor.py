@@ -18,6 +18,7 @@ import datetime
 
 from sqlalchemy.orm import joinedload
 
+from app import account_deletion
 from app.models import (
     APIKey,
     Membership,
@@ -28,12 +29,8 @@ from app.models import (
     utcnow,
 )
 
-# A key that has sat unused this long was probably issued and forgotten, rather
-# than being between runs.
 STALE_KEY_DAYS = 90
 
-# How long a workspace sits in the trash before this page starts saying it is
-# due. Nothing here purges anything, so this only decides when to mention it.
 TRASH_DAYS = 30
 NOTICE_DAYS = 30
 
@@ -321,6 +318,16 @@ def purge(db, workspace_id):
     return slug
 
 
+def leaving_accounts(db):
+    """Accounts that asked to be deleted, soonest first."""
+    return (
+        db.query(User)
+        .filter(User.deletion_requested_at.isnot(None))
+        .order_by(User.deletion_requested_at)
+        .all()
+    )
+
+
 def findings(db):
     """Everything worth a look, as sections the page can render in order."""
     return [
@@ -340,11 +347,20 @@ def findings(db):
                 )
                 for ws, days in trashed_workspaces(db)
             ],
-            # Only the rows past the waiting period, so the page cannot offer a
-            # button for something the purge would refuse anyway.
             "purgeable": [
                 {"id": str(ws.id), "slug": ws.slug, "days": days}
                 for ws, days in purgeable(db)
+            ],
+        },
+        {
+            "title": "Accounts waiting to be deleted",
+            "note": (
+                f"Removed {account_deletion.GRACE_DAYS} days after asking, with any "
+                "workspace nobody else uses. Signing in cancels it."
+            ),
+            "rows": [
+                f"{user.email} - deleted on {account_deletion.delete_after(user).date()}"
+                for user in leaving_accounts(db)
             ],
         },
         {

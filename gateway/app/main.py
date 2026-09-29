@@ -9,7 +9,7 @@ import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app import retention, usage_rollup
+from app import account_deletion, retention, usage_rollup
 from app.admin import mount_admin
 from app.admin.activity import activity_per_instance
 from app.config import settings
@@ -64,6 +64,23 @@ async def _sweep_retention_forever(hours: int) -> None:
             db.close()
 
 
+async def _delete_accounts_forever(hours: int) -> None:
+    """Remove the accounts whose waiting period has run out, on a slow tick."""
+    while True:
+        await asyncio.sleep(hours * 3600)
+        db = SessionLocal()
+        try:
+            if usage_rollup.take_tick(db):
+                erased = await asyncio.to_thread(account_deletion.erase_due, db)
+                if erased:
+                    logging.info("deleted %d account(s) at the end of their waiting period", erased)
+        except Exception:
+            logging.exception("account deletion tick failed")
+            db.rollback()
+        finally:
+            db.close()
+
+
 @contextlib.asynccontextmanager
 async def lifespan(_app: FastAPI):
     seconds = settings.USAGE_SAMPLE_SECONDS
@@ -73,6 +90,8 @@ async def lifespan(_app: FastAPI):
         tasks.append(asyncio.create_task(_sample_usage_forever(seconds)))
     if hours > 0:
         tasks.append(asyncio.create_task(_sweep_retention_forever(hours)))
+    if settings.ACCOUNT_DELETION_HOURS > 0:
+        tasks.append(asyncio.create_task(_delete_accounts_forever(settings.ACCOUNT_DELETION_HOURS)))
     try:
         yield
     finally:
@@ -90,7 +109,6 @@ app = FastAPI(
 )
 
 
-# CORS middleware configuration, origin sourced from env (FRONTEND_URL)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[settings.FRONTEND_URL],
@@ -100,7 +118,6 @@ app.add_middleware(
 )
 
 
-# Mount all endpoint routers
 app.include_router(auth.router, prefix="/api/v1")
 app.include_router(api_keys.router, prefix="/api/v1")
 app.include_router(health.router, prefix="/api/v1")

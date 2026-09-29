@@ -113,8 +113,6 @@ fetchWorkspaces();
   };
 
   const needsWorkspace = WORKSPACE_SCOPED_TABS.has(activeTab) && !activeWorkspace;
-  // A suspended workspace refuses the socket, so the link would only lead to a
-  // page that fails to connect.
   const canVisualize = Boolean(activeWorkspace) && activeWorkspace.is_active !== false;
 
   return (
