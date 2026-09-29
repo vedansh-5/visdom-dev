@@ -15,7 +15,7 @@ from sqlalchemy.orm import sessionmaker
 from starlette.testclient import TestClient
 
 from app.admin import panel
-from app.models import AdminUser, Workspace
+from app.models import AdminUser, Workspace, utcnow
 from app.security import get_password_hash
 
 PAGES = [
@@ -953,6 +953,101 @@ def test_support_sees_the_leftovers_but_cannot_delete_them(admin_client):
     assert "notice_kind=error" in done.headers["location"]
     db.expire_all()
     assert db.get(SharedLink, link.id) is not None
+
+
+def test_moving_a_whole_plan_moves_every_account_on_it(admin_client):
+    from app.models import AdminAction, User
+
+    db = admin_client.staff_db
+    movers = [_account(db, email=f"mover{n}@example.com") for n in range(3)]
+    staying = _account(db, email="already-paid@example.com")
+    staying.tier = "pro"
+    db.commit()
+
+    done = admin_client.post(
+        "/admin/plan-moves",
+        data={"from_plan": "free", "to_plan": "pro"},
+        follow_redirects=False,
+    )
+    assert "Moved+3+accounts" in done.headers["location"]
+
+    db.expire_all()
+    assert {db.get(User, user.id).tier for user in movers} == {"pro"}
+    assert db.get(User, staying.id).tier == "pro"
+    entries = db.query(AdminAction).filter(AdminAction.row_id == str(movers[0].id)).all()
+    assert entries and entries[0].changes["moved_from"] == "free"
+
+
+def test_moving_to_the_same_plan_changes_nothing(admin_client):
+    db = admin_client.staff_db
+    _account(db, email="staying-put@example.com")
+
+    done = admin_client.post(
+        "/admin/plan-moves",
+        data={"from_plan": "free", "to_plan": "free"},
+        follow_redirects=False,
+    )
+    assert "notice_kind=info" in done.headers["location"]
+
+
+def test_nobody_can_be_moved_onto_an_archived_plan(admin_client):
+    from app.models import Plan, User
+
+    db = admin_client.staff_db
+    user = _account(db, email="not-archived@example.com")
+    db.add(
+        Plan(
+            id="retired",
+            name="Retired",
+            price=0,
+            sort_order=9,
+            is_public=False,
+            archived_at=utcnow(),
+            limits={"workspaces": 1, "members": 1, "api_keys": 1, "storage_mb": 1},
+            features=[],
+        )
+    )
+    db.commit()
+
+    done = admin_client.post(
+        "/admin/plan-moves",
+        data={"from_plan": "free", "to_plan": "retired"},
+        follow_redirects=False,
+    )
+    assert "notice_kind=error" in done.headers["location"]
+    db.expire_all()
+    assert db.get(User, user.id).tier == "free"
+
+
+def test_support_cannot_reach_the_plan_moves_page(admin_client):
+    from app.models import User
+
+    db = admin_client.staff_db
+    user = _account(db, email="support-cannot@example.com")
+    db.add(
+        AdminUser(
+            id=uuid.uuid4(),
+            email="support-moves@example.com",
+            password_hash=get_password_hash("supportpassword"),
+            role="support",
+            is_active=True,
+        )
+    )
+    db.commit()
+    admin_client.post(
+        "/admin/login",
+        data={"username": "support-moves@example.com", "password": "supportpassword"},
+    )
+
+    assert admin_client.get("/admin/plan-moves").status_code == 403
+    refused = admin_client.post(
+        "/admin/plan-moves",
+        data={"from_plan": "free", "to_plan": "pro"},
+        follow_redirects=False,
+    )
+    assert refused.status_code == 403
+    db.expire_all()
+    assert db.get(User, user.id).tier == "free"
 
 
 def _plan_form(plan_id="team", limits='{"workspaces": 3, "members": 5, "api_keys": 4, "storage_mb": 2048}', **extra):

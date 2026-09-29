@@ -18,6 +18,7 @@ from urllib.parse import urlencode
 import wtforms
 from sqladmin import Admin, BaseView, ModelView, expose
 from sqladmin.authentication import AuthenticationBackend
+from sqlalchemy import func
 from sqlalchemy.orm import joinedload
 from starlette.exceptions import HTTPException
 from starlette.requests import Request
@@ -1105,6 +1106,114 @@ class AdminUserAdmin(RoleScopedView, model=AdminUser):
                 db.close()
 
 
+class PlanMovesView(BaseView):
+    """Moving a group of accounts between plans in one go.
+
+    The user form moves one account at a time, which is right for a decision
+    about one customer and wrong for a testing phase, where the same decision
+    applies to everyone on a plan. Doing that one row at a time is where
+    mistakes happen, so it is one form with a count in front of it.
+
+    The narrower alternative is worth knowing about and is often the better
+    answer: changing what a plan allows, on the plans page, reaches every
+    account on it at once without moving anybody.
+    """
+
+    name = "Plan moves"
+    icon = "fa-solid fa-right-left"
+    category = "Billing"
+    category_icon = "fa-solid fa-layer-group"
+
+    def is_visible(self, request: Request) -> bool:
+        return self._allowed(request)
+
+    def is_accessible(self, request: Request) -> bool:
+        return self._allowed(request)
+
+    @staticmethod
+    def _allowed(request: Request) -> bool:
+        return "tier" in roles.editable_fields(request.session.get(ROLE_KEY), "User")
+
+    @expose("/plan-moves", methods=["GET", "POST"])
+    async def plan_moves(self, request: Request):
+        """Show who is on what, and move a whole plan's accounts to another.
+
+        The role check is load bearing, as on the cleanup page: sqladmin applies
+        ``is_accessible`` to the menu entry and not to an exposed route, so
+        without it anyone who typed the URL would be served the page.
+        """
+        if not self._allowed(request):
+            return Response("Forbidden", status_code=403)
+
+        if request.method == "POST":
+            kind, message = await self._move(request)
+            query = urlencode({"notice": message, "notice_kind": kind})
+            return RedirectResponse(request.url.replace(query=query), status_code=303)
+
+        db = SessionLocal()
+        try:
+            counts = dict(
+                db.query(User.tier, func.count(User.id)).group_by(User.tier).all()
+            )
+            plans = [
+                {
+                    "id": plan.id,
+                    "name": plan.name,
+                    "accounts": counts.get(plan.id, 0),
+                    "archived": plan.archived_at is not None,
+                }
+                for plan in db.query(Plan).order_by(Plan.sort_order, Plan.id).all()
+            ]
+        finally:
+            db.close()
+        return await self.templates.TemplateResponse(
+            request,
+            "sqladmin/plan_moves.html",
+            {"plans": plans, "movable": [plan for plan in plans if not plan["archived"]]},
+        )
+
+    async def _move(self, request: Request):
+        """Put every account on one plan onto another.
+
+        The target is checked against the same rule the user form uses, so a
+        plan nobody may be assigned to cannot be reached from here either. The
+        move is recorded per account rather than as one entry, because the trail
+        is read by asking what happened to an account.
+        """
+        if not self._allowed(request):
+            return "error", "Your role cannot change plans."
+
+        form = await request.form()
+        source = str(form.get("from_plan") or "").strip()
+        target = str(form.get("to_plan") or "").strip()
+        if not source or not target:
+            return "error", "Choose the plan to move from and the plan to move to."
+        if source == target:
+            return "info", "Those are the same plan, so nothing was moved."
+
+        db = SessionLocal()
+        try:
+            if not billing.assignable(db, target):
+                return "error", f"{target} is archived or does not exist, so nobody can be put on it."
+            accounts = db.query(User).filter(User.tier == source).all()
+            if not accounts:
+                return "info", f"No account is on {source}."
+            moved = [(str(user.id), user.email) for user in accounts]
+            for user in accounts:
+                user.tier = target
+            db.commit()
+        finally:
+            db.close()
+
+        for user_id, _email in moved:
+            _record_action(
+                request, "update", "User", user_id,
+                {"tier": target, "moved_from": source, "moved_in_bulk": True},
+            )
+        count = len(moved)
+        return "success", f"Moved {count} account{'' if count == 1 else 's'} from {source} to {target}."
+
+
 class JanitorView(BaseView):
     """Leftovers worth a look, on one page.
 
@@ -1703,6 +1812,7 @@ def mount_admin(app, secret_key, base_url="/admin"):
 
     for view in VIEWS:
         admin.add_view(view)
+    admin.add_view(PlanMovesView)
     admin.add_view(JanitorView)
     admin.add_view(UsageView)
     return admin
