@@ -55,7 +55,7 @@ async def _sweep_retention_forever(hours: int) -> None:
                         "retention swept %d workspace(s), removed %d env(s)%s",
                         summary["with_expired"],
                         summary["removed"],
-                        "" if settings.RETENTION_ENFORCE else " (reporting only)",
+                        "" if retention.enforcing() else " (reporting only)",
                     )
         except Exception:
             logging.exception("retention sweep failed")

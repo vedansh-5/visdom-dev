@@ -7,6 +7,7 @@ file deleted from the wrong one comes back. Deleting is off unless asked for,
 which is the behaviour most worth pinning down: this is the one job whose
 purpose is destroying work.
 """
+import datetime
 import uuid
 
 import pytest
@@ -145,3 +146,100 @@ def test_an_instance_that_does_not_answer_does_not_stop_the_sweep(db_session, in
     summary = retention.sweep(db_session, enforce=True, ask=flaky)
 
     assert summary["removed"] == 1
+
+
+@pytest.fixture
+def rules(monkeypatch):
+    def _set(enforce=False, starts=None, warn=3):
+        monkeypatch.setattr(retention.settings, "RETENTION_ENFORCE", enforce)
+        monkeypatch.setattr(retention.settings, "RETENTION_STARTS", starts)
+        monkeypatch.setattr(retention.settings, "RETENTION_WARN_DAYS", warn)
+    return _set
+
+
+TODAY = datetime.date(2026, 10, 1)
+
+
+def test_a_plan_that_keeps_everything_says_so(db_session, instances, rules):
+    rules(enforce=True)
+    ask = Recorder()
+    notice = retention.notice(db_session, _workspace(db_session, _owner(db_session, "enterprise")), ask=ask)
+    assert notice["state"] == "forever"
+    assert notice["days"] is None
+    assert notice["expiring"] is None
+    assert ask.calls == []
+
+
+def test_before_deleting_is_switched_on_only_the_window_is_shown(db_session, instances, rules):
+    rules(enforce=False)
+    ask = Recorder()
+    notice = retention.notice(db_session, _workspace(db_session, _owner(db_session, "free")), ask=ask)
+    assert notice["state"] == "not_enforced"
+    assert notice["days"] == 7
+    assert notice["plan"] == "Free"
+    assert notice["expiring"] is None
+    assert ask.calls == []
+
+
+def test_a_start_date_names_what_would_go_on_that_day(db_session, instances, rules):
+    rules(enforce=True, starts=TODAY + datetime.timedelta(days=5))
+    ask = Recorder(envs=["old-run"])
+    workspace = _workspace(db_session, _owner(db_session, "free"))
+    notice = retention.notice(db_session, workspace, ask=ask, today=TODAY)
+    assert notice["state"] == "scheduled"
+    assert notice["starts_on"] == TODAY + datetime.timedelta(days=5)
+    assert notice["expiring"] == ["old-run"]
+    assert {call["days"] for call in ask.calls} == {2}
+    assert all(call["dry_run"] for call in ask.calls)
+
+
+def test_once_deleting_what_goes_in_the_next_few_days_is_listed(db_session, instances, rules):
+    rules(enforce=True, warn=3)
+    ask = Recorder(envs=["b", "a"])
+    workspace = _workspace(db_session, _owner(db_session, "free"))
+    notice = retention.notice(db_session, workspace, ask=ask, today=TODAY)
+    assert notice["state"] == "active"
+    assert notice["expiring"] == ["a", "b"]
+    assert {call["days"] for call in ask.calls} == {4}
+    assert all(call["dry_run"] for call in ask.calls)
+
+
+def test_a_look_ahead_past_the_window_still_asks_for_a_positive_age(db_session, instances, rules):
+    rules(enforce=True, starts=TODAY + datetime.timedelta(days=30))
+    ask = Recorder()
+    retention.notice(db_session, _workspace(db_session, _owner(db_session, "free")), ask=ask, today=TODAY)
+    assert all(call["days"] > 0 for call in ask.calls)
+
+
+def test_no_answer_is_not_the_same_as_nothing_going(db_session, instances, rules):
+    rules(enforce=True)
+    notice = retention.notice(
+        db_session,
+        _workspace(db_session, _owner(db_session, "free")),
+        ask=lambda *args: None,
+        today=TODAY,
+    )
+    assert notice["state"] == "active"
+    assert notice["expiring"] is None
+
+
+def test_a_start_date_holds_the_sweep_back_until_it_arrives(rules):
+    rules(enforce=True, starts=TODAY)
+    assert retention.enforcing(TODAY - datetime.timedelta(days=1)) is False
+    assert retention.enforcing(TODAY) is True
+    rules(enforce=False, starts=TODAY)
+    assert retention.enforcing(TODAY) is False
+
+
+def test_members_can_read_the_notice_and_others_cannot(client, make_user, make_workspace, add_member):
+    owner = make_user()
+    member = make_user()
+    outsider = make_user()
+    workspace = make_workspace(owner)
+    add_member(owner, workspace, member)
+
+    seen = client.get(f"/api/v1/workspaces/{workspace['id']}/retention", headers=member["headers"])
+    assert seen.status_code == 200
+    assert seen.json()["state"] == "forever"
+    hidden = client.get(f"/api/v1/workspaces/{workspace['id']}/retention", headers=outsider["headers"])
+    assert hidden.status_code == 404

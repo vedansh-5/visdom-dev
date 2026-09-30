@@ -23,6 +23,8 @@ mode, and the one that says it holds it is the one told to remove. When none
 holds it, the workspace is dormant and any instance can sweep its files.
 """
 
+import concurrent.futures
+import datetime
 import json
 import logging
 import urllib.error
@@ -32,22 +34,37 @@ from sqlalchemy.orm import Session
 
 from app.admin.activity import instance_addresses
 from app.config import settings
-from app.models import Plan, User, Workspace
+from app.models import Plan, User, Workspace, utcnow
 
 logger = logging.getLogger("visdom.retention")
 
 
-def window_for(db: Session, workspace: Workspace) -> int | None:
-    """How many days of work this workspace keeps, or None for all of it."""
+def plan_for(db: Session, workspace: Workspace) -> Plan | None:
+    """The plan of whoever owns the workspace, which is the one that applies."""
     if workspace.created_by is None:
         return None
     owner = db.query(User).filter(User.id == workspace.created_by).first()
     if owner is None:
         return None
-    plan = db.query(Plan).filter(Plan.id == (owner.tier or "")).first()
-    if plan is None:
-        return None
-    return plan.retention_days
+    return db.query(Plan).filter(Plan.id == (owner.tier or "")).first()
+
+
+def window_for(db: Session, workspace: Workspace) -> int | None:
+    """How many days of work this workspace keeps, or None for all of it."""
+    plan = plan_for(db, workspace)
+    return plan.retention_days if plan is not None else None
+
+
+def enforcing(today: datetime.date | None = None) -> bool:
+    """Whether a sweep today deletes, rather than only reporting.
+
+    ``RETENTION_STARTS`` lets deleting be switched on ahead of time, so the
+    console can name the day it begins before anything is gone.
+    """
+    if not settings.RETENTION_ENFORCE:
+        return False
+    starts = settings.RETENTION_STARTS
+    return starts is None or (today or utcnow().date()) >= starts
 
 
 def sweepable(db: Session) -> list[Workspace]:
@@ -129,7 +146,7 @@ def sweep(db: Session, enforce: bool | None = None, ask=ask_instance) -> dict:
     instance, which is most of the cost of this when the paid plans are the ones
     with work in them.
     """
-    enforce = settings.RETENTION_ENFORCE if enforce is None else enforce
+    enforce = enforcing() if enforce is None else enforce
     summary = {"visited": 0, "with_expired": 0, "removed": 0, "workspaces": []}
     for workspace in sweepable(db):
         days = window_for(db, workspace)
@@ -150,3 +167,63 @@ def sweep(db: Session, enforce: bool | None = None, ask=ask_instance) -> dict:
             result["removed"],
         )
     return summary
+
+
+_SOONEST = 0.01
+
+
+def expiring(workspace: Workspace, older_than_days: float, ask=ask_instance, timeout=None) -> list | None:
+    """Environments older than the given age, from whichever instances answer.
+
+    None when no instance answered, so the console can say it does not know
+    rather than that nothing is going.
+    """
+    addresses = instance_addresses()
+    if not addresses:
+        return None
+    timeout = settings.VISDOM_ACTIVITY_TIMEOUT if timeout is None else timeout
+    days = max(older_than_days, _SOONEST)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=len(addresses)) as pool:
+        answers = list(pool.map(lambda a: ask(a, workspace.id, days, True, timeout), addresses))
+    answered = [answer for answer in answers if answer is not None]
+    if not answered:
+        return None
+    return sorted({eid for answer in answered for eid in answer.get("envs", [])})
+
+
+def notice(db: Session, workspace: Workspace, ask=ask_instance, today: datetime.date | None = None) -> dict:
+    """What a member should be told about how long this workspace keeps work.
+
+    ``state`` is one of ``forever`` (the plan keeps everything), ``not_enforced``
+    (the plan has a window but nothing is deleted yet), ``scheduled`` (deleting
+    starts on ``starts_on``) or ``active``. ``expiring`` lists what goes next:
+    on the start day when scheduled, within ``warn_days`` when active.
+    """
+    today = today or utcnow().date()
+    plan = plan_for(db, workspace)
+    days = plan.retention_days if plan is not None else None
+    result = {
+        "plan": plan.name if plan is not None else None,
+        "days": days,
+        "state": "forever",
+        "starts_on": None,
+        "warn_days": settings.RETENTION_WARN_DAYS,
+        "expiring": None,
+    }
+    if not days:
+        return result
+    if not settings.RETENTION_ENFORCE:
+        result["state"] = "not_enforced"
+        return result
+
+    starts = settings.RETENTION_STARTS
+    if starts is not None and today < starts:
+        result["state"] = "scheduled"
+        result["starts_on"] = starts
+        ahead = (starts - today).days
+    else:
+        result["state"] = "active"
+        ahead = settings.RETENTION_WARN_DAYS
+    if workspace.is_active:
+        result["expiring"] = expiring(workspace, days - ahead, ask=ask)
+    return result
