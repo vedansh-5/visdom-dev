@@ -24,7 +24,6 @@ from app.database import SessionLocal
 from app.models import APIKey, Membership, User, utcnow
 from app.security import claims_match_user, decode_token
 
-# OAuth2 scheme looking for JWT tokens in the Authorization header
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/v1/auth/login", auto_error=False)
 
 
@@ -77,7 +76,6 @@ def user_for_access_token(db: Session, token: str | None) -> User | None:
     if payload.get("sub") is None or payload.get("type") != "access":
         return None
 
-    # Explicit conversion for SQLite/compatibility.
     try:
         user_id = uuid.UUID(payload["sub"])
     except (TypeError, ValueError):
@@ -140,7 +138,7 @@ def _touch_last_used(db: Session, key_record: APIKey) -> None:
 
 def resolve_active_api_key(db: Session, raw_key: str | None) -> APIKey | None:
     """Return the APIKey for a raw key if it exists, is active, unexpired, and its
-    owner is active; otherwise None. Does not raise, so callers that only need a
+    owner is active and not waiting to be deleted; otherwise None. Does not raise, so callers that only need a
     yes/no answer (e.g. the reverse-proxy auth gate) can use it directly."""
     if not raw_key:
         return None
@@ -158,7 +156,8 @@ def resolve_active_api_key(db: Session, raw_key: str | None) -> APIKey | None:
             expires_at = expires_at.replace(tzinfo=datetime.timezone.utc)
         if utcnow() > expires_at:
             return None
-    if not key_record.owner or not key_record.owner.is_active:
+    owner = key_record.owner
+    if not owner or not owner.is_active or owner.deletion_requested_at is not None:
         return None
     _touch_last_used(db, key_record)
     return key_record

@@ -18,7 +18,6 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field
 RoleLiteral = Literal["admin", "member", "viewer"]
 
 
-# --- WORKSPACE SCHEMAS ---
 class WorkspaceCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=100)
     slug: str = Field(..., min_length=1, max_length=100, pattern=r"^[a-z0-9-]+$")
@@ -38,10 +37,6 @@ class MyWorkspaceResponse(WorkspaceResponse):
     their membership-specific role and starred flag alongside the workspace."""
     role: str
     starred: bool
-    # False when staff have suspended the workspace. Everything is still there
-    # and nothing is lost, but nothing can be read from or written to it, so the
-    # console has something to say rather than leaving the member to discover it
-    # by finding their plots will not load.
     is_active: bool = True
 
 
@@ -49,7 +44,6 @@ class StarredUpdate(BaseModel):
     starred: bool
 
 
-# --- MEMBERSHIP SCHEMAS ---
 class MemberInvite(BaseModel):
     email: EmailStr = Field(..., max_length=100)
     role: RoleLiteral
@@ -81,7 +75,6 @@ class OwnerTransfer(BaseModel):
     user_id: uuid.UUID
 
 
-# --- SHARED LINK SCHEMAS ---
 class SharedLinkCreate(BaseModel):
     role: RoleLiteral = "member"
     expires_at: Optional[datetime.datetime] = None

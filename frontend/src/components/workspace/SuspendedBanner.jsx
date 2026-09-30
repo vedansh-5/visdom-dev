@@ -1,10 +1,6 @@
 /* Copyright 2017-present, The Visdom Authors */
 import { AlertTriangle } from 'lucide-react';
 
-/* A suspended workspace refuses every read and write, and until now said so
-   nowhere: the workspace sat in the sidebar looking ordinary and the plots
-   simply never loaded. Whoever suspended it knows why, so the wording points at
-   them rather than guessing. */
 const SuspendedBanner = ({ workspace }) => {
   if (!workspace || workspace.is_active !== false) return null;
 

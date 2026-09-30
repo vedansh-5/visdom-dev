@@ -40,6 +40,7 @@ class Settings(BaseSettings):
     RETENTION_SWEEP_HOURS: int = 24
     RETENTION_ENFORCE: bool = False
     RETENTION_TIMEOUT: float = 15.0
+    ACCOUNT_DELETION_HOURS: int = 6
 
     model_config = SettingsConfigDict(env_file=".env")
 

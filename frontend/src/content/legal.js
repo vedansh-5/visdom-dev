@@ -62,7 +62,7 @@ export const PRIVACY = [
     heading: 'What you can ask for',
     body: [
       'A copy of what we hold about you, a correction, or deletion of your account and its contents.',
-      'You can delete workspaces yourself from the console at any time. Deleting a whole account is done by hand at the moment: email us and we will confirm when it is done.',
+      'You can delete workspaces yourself from the console at any time. You can also delete your whole account from your profile. It stops working straight away and is removed for good 30 days later, along with any workspace nobody else uses. Signing in during those 30 days cancels it.',
       'If you think we are handling your data wrongly, tell us first, and you also have the right to complain to a data protection authority.',
     ],
   },

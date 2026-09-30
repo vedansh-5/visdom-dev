@@ -155,8 +155,6 @@ def test_key_use_is_recorded_then_throttled(client, make_user):
     first = last_used()
     assert first is not None
 
-    # A second use inside the throttle window must not write again, otherwise every
-    # request on the read path costs a commit.
     assert client.get(KEY_CHECK, headers={"X-API-KEY": created["raw_key"]}).status_code == 200
     assert last_used() == first
 

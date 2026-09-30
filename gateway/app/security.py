@@ -18,7 +18,6 @@ from bcrypt import checkpw, gensalt, hashpw
 from app.config import settings
 
 
-# 1. Password Hashing via Bcrypt
 def get_password_hash(password: str) -> str:
     """Hashes a plain-text password using Bcrypt."""
     password_bytes = password.encode('utf-8')
@@ -31,7 +30,6 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     return checkpw(plain_password.encode('utf-8'), hashed_password.encode('utf-8'))
 
 
-# 2. JWT Generation & Validation
 def create_access_token(data: dict, expires_delta: Optional[datetime.timedelta] = None) -> str:
     """Generates a short-lived JWT access token."""
     to_encode = data.copy()

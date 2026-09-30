@@ -16,11 +16,11 @@ const Register = () => {
   const [success, setSuccess] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
-  const [usernameMode, setUsernameMode] = useState('auto'); // 'auto' | 'custom'
+  const [usernameMode, setUsernameMode] = useState('auto');
   const [autoUsername, setAutoUsername] = useState('');
   const [autoUsernameLoading, setAutoUsernameLoading] = useState(true);
   const [customUsername, setCustomUsername] = useState('');
-  const [usernameAvailable, setUsernameAvailable] = useState(null); // null | true | false
+  const [usernameAvailable, setUsernameAvailable] = useState(null);
   const [checkingUsername, setCheckingUsername] = useState(false);
 
   const { register, login } = useAuth();

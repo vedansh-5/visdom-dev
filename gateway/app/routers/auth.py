@@ -11,8 +11,9 @@ from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
+from app import account_deletion, password_reset
 from app import email as outbound
-from app import password_reset
+from app.admin.activity import evict_workspace
 from app.config import settings
 from app.dependencies import (
     commit_or_conflict,
@@ -25,6 +26,10 @@ from app.dependencies import (
 )
 from app.models import APIKey, Membership, User, WorkspaceInvite, utcnow
 from app.schemas import (
+    AccountDeletionRequest,
+    DeletionPreview,
+    DeletionScheduled,
+    DeletionWorkspace,
     GeneratedUsernameResponse,
     PasswordChange,
     PasswordResetConfirm,
@@ -193,6 +198,7 @@ def login(
             detail="Inactive user."
         )
 
+    cancelled = account_deletion.cancel(user)
     user.last_login_at = utcnow()
     db.commit()
 
@@ -202,7 +208,7 @@ def login(
 
     _open_session(response, access_token, refresh_token)
 
-    return {"access_token": access_token, "token_type": "bearer"}
+    return {"access_token": access_token, "token_type": "bearer", "deletion_cancelled": cancelled}
 
 
 @router.post("/refresh", response_model=Token)
@@ -252,7 +258,6 @@ def refresh_session(request: Request, response: Response, db: Session = Depends(
             detail="This session has been logged out.",
         )
 
-    # Rotate both access and refresh tokens
     claims = session_claims(user)
     new_access_token = create_access_token(data=claims)
     new_refresh_token = create_refresh_token(data=claims)
@@ -373,6 +378,64 @@ def change_password(
     access_token = create_access_token(data=claims)
     _open_session(response, access_token, create_refresh_token(data=claims))
     return {"access_token": access_token, "token_type": "bearer"}
+
+
+def _preview(db: Session, user: User) -> dict:
+    state = account_deletion.standing(db, user)
+    return {
+        "grace_days": account_deletion.GRACE_DAYS,
+        "blockers": [
+            DeletionWorkspace(id=ws.id, name=ws.name, slug=ws.slug, reason=reason)
+            for ws, reason in state["blockers"]
+        ],
+        "leaving_with": [
+            DeletionWorkspace(id=ws.id, name=ws.name, slug=ws.slug)
+            for ws in state["leaving_with"]
+        ],
+    }
+
+
+@router.get("/me/deletion", response_model=DeletionPreview)
+def preview_account_deletion(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """What deleting this account would take with it, and what is in the way."""
+    return _preview(db, current_user)
+
+
+@router.post("/me/deletion", response_model=DeletionScheduled, status_code=status.HTTP_202_ACCEPTED)
+def request_account_deletion(
+    body: AccountDeletionRequest,
+    response: Response,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Close the account now and delete it after the waiting period.
+
+    Every session ends and every key stops working straight away. Signing in
+    before the deadline cancels the whole thing.
+    """
+    if not verify_password(body.password, current_user.password_hash):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="That is not your password.",
+        )
+    preview = _preview(db, current_user)
+    if preview["blockers"]:
+        names = ", ".join(ws.name for ws in preview["blockers"])
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Put someone else in charge of {names} first.",
+        )
+
+    delete_after = account_deletion.request(db, current_user)
+    for ws in preview["leaving_with"]:
+        evict_workspace(ws.slug, "this account is being deleted")
+
+    response.delete_cookie(key="refresh_token", path="/api/v1/auth")
+    response.delete_cookie(key="session_token", path="/")
+    return {"delete_after": delete_after}
 
 
 @router.get("/verify")

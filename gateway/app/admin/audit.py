@@ -32,11 +32,7 @@ class StaffAuditBackend(DBAuditBackend):
 
     def build_row(self, entry, actor, request):
         return AdminAction(
-            # Stored as text and with no foreign key, so that removing a staff
-            # account leaves the trail of what it did intact and readable.
             admin_id=str(actor) if actor else None,
-            # Copied rather than only referenced, so the trail still names who
-            # acted after their staff account is removed.
             admin_email=request.session.get(self.email_key),
             action=entry.action,
             model=entry.identity,
@@ -46,11 +42,6 @@ class StaffAuditBackend(DBAuditBackend):
         )
 
 
-# Fields whose value must never reach the trail. The staff creation form writes
-# the password through a field named for the column it lands in, so the value
-# arriving here is the plaintext one. A record of who added an account is worth
-# keeping; a record of the password they chose is a second place to steal it
-# from, and one that outlives the account.
 _SECRET_FIELDS = ("password", "password_hash", "hashed_key", "token", "secret")
 
 _REDACTED = "[redacted]"

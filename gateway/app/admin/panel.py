@@ -51,7 +51,6 @@ EMAIL_KEY = "admin_email"
 
 MIN_SET_PASSWORD = 12
 
-# Environment names that should make the panel visibly alarming to be looking at.
 DANGEROUS_ENVIRONMENTS = ("prod", "production", "live")
 
 
@@ -88,9 +87,6 @@ class StaffAuth(AuthenticationBackend):
         if not admin_id:
             return RedirectResponse(request.url_for("admin:login"), status_code=302)
         try:
-            # The session carries the id as text, and the column is a UUID.
-            # Converting here rather than leaving it to the driver also turns a
-            # tampered cookie into a signed-out visitor instead of an error.
             admin_key = uuid.UUID(str(admin_id))
         except ValueError:
             request.session.clear()
@@ -501,8 +497,6 @@ def _days_since(moment):
     return max(0, (now - moment).days)
 
 
-# What the socket says on its way out. Worth distinguishing, because one of
-# these is something a member can undo by asking and the other is not.
 _SUSPENDED_REASON = "this workspace has been suspended, contact an administrator"
 _TRASHED_REASON = "this workspace is in the trash, ask an administrator to restore it"
 
@@ -1513,8 +1507,6 @@ def janitor_findings():
         db.close()
 
 
-# What to call a row of each kind, so the audit trail can name what was changed
-# rather than only pointing at it.
 _AUDIT_LABELS = {
     "User": (User, lambda row: row.email),
     "Workspace": (Workspace, lambda row: row.slug),

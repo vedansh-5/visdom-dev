@@ -6,6 +6,7 @@ import { useToast } from './toast/useToast';
 import { parseApiError } from '../utils/helpers';
 import ModalPortal from './ModalPortal';
 import PasswordInput from './PasswordInput';
+import DeleteAccountSection from './DeleteAccountSection';
 import { formatJoined, formatLastSignIn, planName } from '../utils/profileDetails';
 
 const USERNAME_PATTERN = /^[A-Za-z0-9_-]{3,30}$/;
@@ -224,6 +225,8 @@ const ProfileModal = ({ onClose }) => {
           Changing it signs you out on every other device.
         </div>
       </form>
+
+      <DeleteAccountSection onClose={onClose} />
     </ModalPortal>
   );
 };

@@ -384,3 +384,10 @@
   padding-top: 18px;
   border-top: 1px solid var(--vc-border);
 }
+
+.gc-delete-list {
+  margin: 0 0 12px;
+  padding-left: 18px;
+  font-size: 13px;
+  line-height: 1.6;
+}
