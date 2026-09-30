@@ -9,6 +9,7 @@ Once a week, on Sunday at 04:30 UTC, an hour after the nightly backup:
 | Step | What goes | What stays |
 |---|---|---|
 | `docker builder prune --filter until=168h` | build files not used for a week | anything the last week of deploys used, so the next build is still quick |
+| `docker builder prune --max-used-space 3gb` | the oldest build files, until at most 3 GB are left | the newest 3 GB, for a week with many deploys |
 | `docker image prune` | images no container uses and no tag points at | every image a container is running |
 | `df -h /` | nothing | prints disk use into the log, so the effect can be read back |
 
