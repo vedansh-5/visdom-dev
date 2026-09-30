@@ -19,6 +19,7 @@ import datetime
 from sqlalchemy.orm import joinedload
 
 from app import account_deletion
+from app.admin.activity import drop_workspace
 from app.models import (
     APIKey,
     Membership,
@@ -296,9 +297,9 @@ def purge(db, workspace_id):
     ``TRASH_DAYS``, so the waiting period cannot be skipped by calling this
     directly. Returns the slug that was removed, for the audit entry.
 
-    Rows only. The workspace's directory on the visdom volume is left where it
-    is and shows up under the orphan section afterwards, so reclaiming disk
-    stays a separate and visible step rather than something this quietly does.
+    The plot files go first and the rows after, so a failure to reach the
+    instances leaves everything in place to try again rather than rows gone
+    and files left behind with nothing pointing at them.
     """
     workspace = db.query(Workspace).filter(Workspace.id == workspace_id).first()
     if workspace is None:
@@ -313,6 +314,7 @@ def purge(db, workspace_id):
             f"and is not due until {TRASH_DAYS}."
         )
     slug = workspace.slug
+    drop_workspace(workspace.id)
     db.delete(workspace)
     db.commit()
     return slug
@@ -335,7 +337,8 @@ def findings(db):
             "title": "In the trash",
             "note": (
                 f"Restorable by a superadmin. Nothing is purged automatically; "
-                f"past {TRASH_DAYS} days is flagged as due."
+                f"past {TRASH_DAYS} days is flagged as due. Purging removes the "
+                "plot files too."
             ),
             "rows": [
                 "%s (%s) - %dd%s"

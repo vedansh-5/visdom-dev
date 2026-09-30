@@ -237,3 +237,56 @@ def _tell(address: str, body: bytes, timeout: float) -> int:
     except (urllib.error.URLError, OSError, ValueError, TypeError) as exc:
         logging.warning("could not evict %s on %s: %s", body, address, exc)
         return 0
+
+
+class FilesKept(RuntimeError):
+    """Some instance did not confirm it let go of a workspace, so its files stay."""
+
+
+def drop_workspace(workspace_id, timeout: float | None = None) -> dict:
+    """Ask every instance to remove a workspace for good, files included.
+
+    Every instance has to answer. One that holds the workspace in memory and
+    misses the call could write a file back after another has removed the
+    directory, so a silent instance stops the removal instead of letting it
+    half happen. The caller keeps the rows and tries again later.
+
+    With no instances configured there is nothing to ask and nothing on disk.
+    """
+    addresses = instance_addresses()
+    result = {"asked": len(addresses), "removed": False, "bytes": 0}
+    if not addresses:
+        return result
+    if timeout is None:
+        timeout = settings.RETENTION_TIMEOUT
+
+    body = json.dumps({"workspace_id": str(workspace_id)}).encode()
+    with concurrent.futures.ThreadPoolExecutor(max_workers=len(addresses)) as pool:
+        answers = list(pool.map(lambda a: _drop_on(a, body, timeout), addresses))
+
+    silent = [address for address, answer in zip(addresses, answers, strict=True) if answer is None]
+    if silent:
+        raise FilesKept(
+            "The plot files could not be removed because "
+            f"{', '.join(silent)} did not answer. Nothing was deleted; try again."
+        )
+    for answer in answers:
+        if answer.get("removed"):
+            result["removed"] = True
+            result["bytes"] += int(answer.get("bytes") or 0)
+    return result
+
+
+def _drop_on(address: str, body: bytes, timeout: float) -> dict | None:
+    request = urllib.request.Request(
+        f"http://{address}/vis/_drop",
+        data=body,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            return json.loads(response.read() or b"{}")
+    except (urllib.error.URLError, OSError, ValueError, TypeError) as exc:
+        logging.warning("could not drop %s on %s: %s", body, address, exc)
+        return None

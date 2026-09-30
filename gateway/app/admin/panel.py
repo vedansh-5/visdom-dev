@@ -1461,7 +1461,7 @@ class JanitorView(BaseView):
         db = SessionLocal()
         try:
             slug = janitor.purge(db, uuid.UUID(raw_id))
-        except (ValueError, LookupError) as exc:
+        except (ValueError, LookupError, activity.FilesKept) as exc:
             return "error", str(exc) or "That workspace could not be purged."
         finally:
             db.close()

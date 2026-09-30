@@ -21,6 +21,7 @@ import logging
 
 from sqlalchemy.orm import Session
 
+from app.admin.activity import FilesKept, drop_workspace
 from app.models import AdminAction, Membership, User, Workspace, WorkspaceInvite, utcnow
 
 GRACE_DAYS = 30
@@ -128,6 +129,9 @@ def erase(db: Session, user_id, now: datetime.datetime | None = None) -> dict | 
     at the same moment wins, and two workers cannot both remove it. An account
     that has picked up a blocker since the request is left alone and logged,
     rather than taking a shared workspace with it.
+
+    The plot files of the workspaces going with it are removed first. If any
+    instance does not confirm, the account stays and the next tick tries again.
     """
     cutoff = (now or utcnow()) - datetime.timedelta(days=GRACE_DAYS)
     user = (
@@ -150,6 +154,14 @@ def erase(db: Session, user_id, now: datetime.datetime | None = None) -> dict | 
             user.id,
             ", ".join(ws.slug for ws, _ in state["blockers"]),
         )
+        return None
+
+    freed = 0
+    try:
+        for workspace in state["leaving_with"]:
+            freed += drop_workspace(workspace.id)["bytes"]
+    except FilesKept as exc:
+        logging.warning("account %s is due for deletion but kept: %s", user.id, exc)
         return None
 
     removed = []
@@ -178,6 +190,7 @@ def erase(db: Session, user_id, now: datetime.datetime | None = None) -> dict | 
             changes={
                 "reason": f"asked for by the account holder {GRACE_DAYS} days earlier",
                 "workspaces_removed": removed,
+                "bytes_freed": freed,
             },
         )
     )
