@@ -38,6 +38,7 @@ const UsageTab = () => {
 
   const rows = usage?.workspaces || [];
   const totals = usage?.totals || { active_minutes: 0, storage_bytes: 0 };
+  const cap = usage?.workspace_storage_limit ?? null;
 
   return (
     <div className="gc-flex-col-gap-lg">
@@ -67,6 +68,8 @@ const UsageTab = () => {
         <div className="gc-text-desc-muted gc-mt-sm">
           Active time counts each minute in which one of your workspaces received at least one
           plot. A dashboard left open with nothing arriving does not count.
+          {cap !== null &&
+            ` Each workspace can hold up to ${formatBytes(cap)} of plots on your plan. Past that, new plots are refused until old environments are deleted.`}
         </div>
       </section>
 
@@ -83,8 +86,17 @@ const UsageTab = () => {
                 <span>{row.name}</span>
                 <span>
                   {formatActiveTime(row.active_minutes)} &middot; {formatBytes(row.storage_bytes)}
+                  {cap !== null && ` of ${formatBytes(cap)}`}
                 </span>
               </div>
+              {cap !== null && (
+                <div className="gc-meter-track">
+                  <div
+                    className="gc-meter-fill"
+                    style={{ width: `${Math.min(100, (row.storage_bytes / cap) * 100)}%` }}
+                  />
+                </div>
+              )}
             </div>
           ))
         )}

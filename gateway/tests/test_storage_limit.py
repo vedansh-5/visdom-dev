@@ -139,3 +139,63 @@ def test_the_billing_page_shows_storage_against_the_limit(client, make_user, mak
 
     shown = client.get("/api/v1/billing/subscription", headers=owner["headers"]).json()
     assert shown["usage"]["storage"] == {"used": 300 * MEGABYTE, "limit": FREE_LIMIT}
+
+
+PRO_WORKSPACE_LIMIT = 5120 * MEGABYTE
+
+
+def test_one_workspace_cannot_take_the_whole_allowance(client, make_user, make_workspace, db_session):
+    """Pro allows 10 GB in all but 5 GB in any one workspace."""
+    owner = make_user()
+    full = make_workspace(owner)
+    other = make_workspace(owner)
+    full_key = _write_key(client, owner, full)
+    other_key = _write_key(client, owner, other)
+    _on_plan(db_session, owner, "pro")
+    _stored(db_session, full, PRO_WORKSPACE_LIMIT)
+
+    refused = _write(client, full_key, full)
+    assert refused.status_code == 402
+    assert "one workspace" in refused.json()["detail"]
+    assert _write(client, other_key, other).status_code == 200
+
+
+def test_a_plan_without_a_workspace_cap_falls_back_to_the_total(client, make_user, make_workspace, db_session):
+    from app.models import Plan
+
+    owner = make_user()
+    ws = make_workspace(owner)
+    key = _write_key(client, owner, ws)
+    _on_plan(db_session, owner, "pro")
+    plan = db_session.query(Plan).filter(Plan.id == "pro").one()
+    plan.limits = {**plan.limits, "workspace_storage_mb": None}
+    db_session.commit()
+    _stored(db_session, ws, PRO_WORKSPACE_LIMIT * 3 // 2)
+
+    assert _write(client, key, ws).status_code == 200
+
+
+def test_a_trashed_workspace_still_counts_until_it_is_purged(client, make_user, make_workspace, db_session):
+    """Its files are still on disk, so trashing one must not free room for another."""
+    from app.models import Workspace
+
+    owner = make_user()
+    trashed = make_workspace(owner)
+    live = make_workspace(owner)
+    key = _write_key(client, owner, live)
+    _on_plan(db_session, owner, "free")
+    _stored(db_session, trashed, FREE_LIMIT)
+    row = db_session.query(Workspace).filter(Workspace.id == uuid.UUID(trashed["id"])).one()
+    row.trashed_at = datetime.datetime.now(datetime.timezone.utc)
+    db_session.commit()
+
+    assert _write(client, key, live).status_code == 402
+
+
+def test_the_usage_page_shows_the_workspace_cap(client, make_user, make_workspace, db_session):
+    owner = make_user()
+    make_workspace(owner)
+    _on_plan(db_session, owner, "pro")
+
+    shown = client.get("/api/v1/usage", headers=owner["headers"]).json()
+    assert shown["workspace_storage_limit"] == PRO_WORKSPACE_LIMIT

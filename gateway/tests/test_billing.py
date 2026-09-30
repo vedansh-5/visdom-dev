@@ -10,11 +10,23 @@ def test_list_plans(client):
 
     free, pro, enterprise = plans
     assert free["price"] == 0
-    assert free["limits"] == {"workspaces": 1, "members": 3, "api_keys": 2, "storage_mb": 1024}
+    assert free["limits"] == {
+        "workspaces": 1,
+        "members": 3,
+        "api_keys": 2,
+        "storage_mb": 1024,
+        "workspace_storage_mb": 1024,
+    }
     assert pro["price"] == 29
     assert pro["limits"]["members"] is None
     assert enterprise["price"] is None
-    assert enterprise["limits"] == {"workspaces": None, "members": None, "api_keys": None, "storage_mb": None}
+    assert enterprise["limits"] == {
+        "workspaces": None,
+        "members": None,
+        "api_keys": None,
+        "storage_mb": None,
+        "workspace_storage_mb": None,
+    }
     assert all(plan["features"] for plan in plans)
 
 
@@ -291,7 +303,7 @@ def test_limits_refuse_an_unknown_marker():
     from app.billing import validate_limits
 
     with pytest.raises(ValueError, match="Unknown limit: workspace"):
-        validate_limits({"workspace": 1, "members": 3, "api_keys": 2, "storage_mb": 1})
+        validate_limits({"workspace": 1, "members": 3, "api_keys": 2, "storage_mb": 1, "workspace_storage_mb": 1})
 
 
 def test_limits_refuse_a_negative_or_non_whole_value():
@@ -301,17 +313,27 @@ def test_limits_refuse_a_negative_or_non_whole_value():
 
     for bad in (-1, 1.5, "3", True):
         with pytest.raises(ValueError):
-            validate_limits({"workspaces": bad, "members": 3, "api_keys": 2, "storage_mb": 1})
+            validate_limits(
+                {"workspaces": bad, "members": 3, "api_keys": 2, "storage_mb": 1, "workspace_storage_mb": 1}
+            )
 
 
 def test_null_means_unlimited():
     from app.billing import validate_limits
 
-    assert validate_limits({"workspaces": None, "members": 0, "api_keys": 5, "storage_mb": None}) == {
+    limits = {
         "workspaces": None,
         "members": 0,
         "api_keys": 5,
         "storage_mb": None,
+        "workspace_storage_mb": None,
+    }
+    assert validate_limits(limits) == {
+        "workspaces": None,
+        "members": 0,
+        "api_keys": 5,
+        "storage_mb": None,
+        "workspace_storage_mb": None,
     }
 
 

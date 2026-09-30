@@ -149,6 +149,7 @@ class PlanLimits(BaseModel):
     members: Optional[int] = None
     api_keys: Optional[int] = None
     storage_mb: Optional[int] = None
+    workspace_storage_mb: Optional[int] = None
 
 
 class PlanResponse(BaseModel):

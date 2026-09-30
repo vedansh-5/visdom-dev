@@ -19,13 +19,11 @@ from app.billing import at_limit, limit_for
 from app.models import APIKey, Membership, User, Workspace, WorkspaceUsageHour
 
 
-def owned_workspace_ids(db: Session, user: User) -> list:
-    return [
-        row[0]
-        for row in db.query(Workspace.id)
-        .filter(Workspace.created_by == user.id, Workspace.trashed_at.is_(None))
-        .all()
-    ]
+def owned_workspace_ids(db: Session, user: User, include_trashed: bool = False) -> list:
+    query = db.query(Workspace.id).filter(Workspace.created_by == user.id)
+    if not include_trashed:
+        query = query.filter(Workspace.trashed_at.is_(None))
+    return [row[0] for row in query.all()]
 
 
 def workspaces_used(db: Session, user: User) -> int:
@@ -114,12 +112,30 @@ MEGABYTE = 1024 * 1024
 
 
 def storage_used(db: Session, user: User) -> int:
-    """Bytes on disk across every workspace the account owns, as last sampled."""
-    return sum(latest_storage(db, owned_workspace_ids(db, user)).values())
+    """Bytes on disk across every workspace the account owns, as last sampled.
+
+    Workspaces in the trash count too. Their files stay on disk until they are
+    purged, so leaving them out let an account trash a full workspace and fill
+    another.
+    """
+    return sum(latest_storage(db, owned_workspace_ids(db, user, include_trashed=True)).values())
+
+
+def workspace_storage_limit(db: Session, workspace: Workspace) -> int | None:
+    """Bytes one workspace may hold under its owner's plan, or None for no cap."""
+    owner = workspace.creator
+    if owner is None:
+        return None
+    limit_mb = limit_for(db, owner.tier, "workspace_storage_mb")
+    return None if limit_mb is None else limit_mb * MEGABYTE
 
 
 def refuse_writes_over_storage(db: Session, workspace: Workspace) -> None:
-    """Stop new plots once the workspace owner's plan is out of storage.
+    """Stop new plots once the workspace, or its owner's plan, is out of storage.
+
+    Two ceilings: what any one workspace may hold, and what all of the owner's
+    workspaces may hold together. The first is what stops one busy workspace
+    taking the whole allowance, or the whole disk on a plan with no total.
 
     The owner's plan is the one that pays, so a member writing into someone
     else's workspace is held to the owner's limit, not their own. Only writes
@@ -129,6 +145,16 @@ def refuse_writes_over_storage(db: Session, workspace: Workspace) -> None:
     owner = workspace.creator
     if owner is None:
         return
+    ceiling = workspace_storage_limit(db, workspace)
+    if ceiling is not None and latest_storage(db, [workspace.id]).get(workspace.id, 0) >= ceiling:
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            detail=(
+                f"This workspace has used all {ceiling // MEGABYTE:,} MB of storage one "
+                f"workspace may hold on the {owner.tier} plan, so new plots are refused. "
+                "Viewing still works; deleting old environments frees space."
+            ),
+        )
     limit_mb = limit_for(db, owner.tier, "storage_mb")
     if limit_mb is None:
         return
