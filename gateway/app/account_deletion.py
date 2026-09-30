@@ -150,7 +150,6 @@ def erase(db: Session, user_id, now: datetime.datetime | None = None) -> dict | 
             user.id,
             ", ".join(ws.slug for ws, _ in state["blockers"]),
         )
-        db.rollback()
         return None
 
     removed = []
