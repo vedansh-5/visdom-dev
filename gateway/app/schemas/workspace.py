@@ -71,6 +71,10 @@ class MemberRoleUpdate(BaseModel):
     role: RoleLiteral
 
 
+class OwnerTransfer(BaseModel):
+    user_id: uuid.UUID
+
+
 class SharedLinkCreate(BaseModel):
     role: RoleLiteral = "member"
     expires_at: Optional[datetime.datetime] = None
