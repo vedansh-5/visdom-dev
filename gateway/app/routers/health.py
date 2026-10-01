@@ -17,7 +17,9 @@ from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from app import heartbeat
 from app.admin.activity import activity_per_instance, instance_addresses
+from app.config import settings
 from app.dependencies import get_db
 
 router = APIRouter(prefix="/health", tags=["health"])
@@ -55,6 +57,10 @@ def component_health(response: Response, db: Session = Depends(get_db)):
     instance is down, and a deployment in that state serves the console and no
     plots at all. This asks the instances too, and answers 503 when any part is
     unhealthy, so the same uptime check catches the half-broken stack.
+
+    Metering is one of the parts. A sampler that has stopped loses usage for
+    good and shows nowhere else, so it is checked here by how long ago it last
+    finished a run.
     """
     checks = {}
 
@@ -76,7 +82,17 @@ def component_health(response: Response, db: Session = Depends(get_db)):
         visdom_ok = True
         checks["visdom"] = "no instances configured"
 
-    healthy = database_ok and visdom_ok
+    metering_ok = True
+    if database_ok:
+        try:
+            metering_ok, checks["metering"] = heartbeat.standing(
+                db, heartbeat.USAGE, settings.USAGE_SAMPLE_SECONDS
+            )
+        except Exception:
+            logging.exception("component health could not read the metering heartbeat")
+            metering_ok, checks["metering"] = False, "unknown"
+
+    healthy = database_ok and visdom_ok and metering_ok
     if not healthy:
         response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
     return {"status": "healthy" if healthy else "degraded", "checks": checks}

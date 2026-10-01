@@ -37,6 +37,7 @@ import uuid
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from app import heartbeat
 from app.models import UsageBaseline, Workspace, WorkspaceUsageHour, utcnow
 
 _COUNTERS = ("writes", "broadcasts", "broadcast_bytes")
@@ -203,5 +204,6 @@ def sample_once(db: Session, answers_fn, when: datetime.datetime | None = None) 
         db.rollback()
         return 0
     folded = record(db, gather(db, answers), when=when)
+    heartbeat.mark(db, heartbeat.USAGE)
     db.commit()
     return folded

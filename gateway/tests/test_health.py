@@ -36,7 +36,10 @@ def test_every_instance_answering_is_healthy(client, monkeypatch):
     )
     answered = client.get(f"{HEALTH}/components")
     assert answered.status_code == 200
-    assert answered.json() == {"status": "healthy", "checks": {"database": "ok", "visdom": "2 of 2 answering"}}
+    assert answered.json() == {
+        "status": "healthy",
+        "checks": {"database": "ok", "visdom": "2 of 2 answering", "metering": "off"},
+    }
 
 
 def test_one_instance_down_is_degraded(client, monkeypatch):
@@ -56,3 +59,71 @@ def test_a_deployment_with_no_instances_configured_is_not_called_broken(client, 
     answered = client.get(f"{HEALTH}/components")
     assert answered.status_code == 200
     assert answered.json()["checks"]["visdom"] == "no instances configured"
+
+
+def _metered(monkeypatch, seconds=60):
+    monkeypatch.setattr(health, "instance_addresses", lambda: [])
+    monkeypatch.setattr(health.settings, "USAGE_SAMPLE_SECONDS", seconds)
+
+
+def test_metering_that_just_ran_is_healthy(client, db_session, monkeypatch):
+    from app import heartbeat
+
+    _metered(monkeypatch)
+    heartbeat.mark(db_session, heartbeat.USAGE)
+    db_session.commit()
+
+    answered = client.get(f"{HEALTH}/components")
+    assert answered.status_code == 200
+    assert answered.json()["checks"]["metering"] == "ok"
+
+
+def test_metering_that_has_stopped_is_degraded(client, db_session, monkeypatch):
+    """Nothing else notices: no usage rows look the same as a quiet hour."""
+    import datetime
+
+    from app import heartbeat
+    from app.models import utcnow
+
+    _metered(monkeypatch)
+    heartbeat.mark(db_session, heartbeat.USAGE, utcnow() - datetime.timedelta(minutes=20))
+    db_session.commit()
+
+    answered = client.get(f"{HEALTH}/components")
+    assert answered.status_code == 503
+    assert answered.json()["status"] == "degraded"
+    assert answered.json()["checks"]["metering"] == "last ran 20 minutes ago"
+
+
+def test_a_restart_is_given_time_before_metering_counts_as_stopped(client, monkeypatch):
+    from app import heartbeat
+    from app.models import utcnow
+
+    _metered(monkeypatch)
+    monkeypatch.setattr(heartbeat, "STARTED", utcnow())
+
+    answered = client.get(f"{HEALTH}/components")
+    assert answered.status_code == 200
+    assert answered.json()["checks"]["metering"] == "waiting for the first run"
+
+
+def test_metering_that_never_started_is_degraded(client, monkeypatch):
+    import datetime
+
+    from app import heartbeat
+    from app.models import utcnow
+
+    _metered(monkeypatch)
+    monkeypatch.setattr(heartbeat, "STARTED", utcnow() - datetime.timedelta(hours=1))
+
+    answered = client.get(f"{HEALTH}/components")
+    assert answered.status_code == 503
+    assert answered.json()["checks"]["metering"] == "has never run"
+
+
+def test_a_sample_leaves_a_heartbeat_even_with_nothing_to_record(db_session):
+    from app import heartbeat, usage_rollup
+
+    assert heartbeat.last(db_session, heartbeat.USAGE) is None
+    usage_rollup.sample_once(db_session, lambda: [])
+    assert heartbeat.last(db_session, heartbeat.USAGE) is not None

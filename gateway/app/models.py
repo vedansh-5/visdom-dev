@@ -272,3 +272,17 @@ class PasswordReset(Base):
     created_at = Column(DateTime(timezone=True), nullable=False, default=utcnow)
     expires_at = Column(DateTime(timezone=True), nullable=False)
     used_at = Column(DateTime(timezone=True), nullable=True)
+
+
+class Heartbeat(Base):
+    """When a background job last finished a run.
+
+    A job that writes nothing when there is nothing to do looks the same idle as
+    it does stopped. This is the one thing it always writes, so a check can tell
+    the two apart.
+    """
+
+    __tablename__ = "heartbeats"
+
+    name = Column(String, primary_key=True)
+    beat_at = Column(DateTime(timezone=True), nullable=False)
