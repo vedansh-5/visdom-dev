@@ -151,7 +151,7 @@
           <input type="hidden" name="workspace_id" value="{{ item.id }}">
           <button type="submit" class="ap-purge-btn" data-danger data-confirm-label="Purge"
             data-confirm-title="Purge {{ item.slug }}?"
-            data-confirm="Its rows are removed for good. What is on the visdom volume stays, and shows up under orphaned workspaces.">Purge {{ item.slug }} ({{ item.days }}d)</button>
+            data-confirm="The workspace, its members and its plot files are removed for good. This cannot be undone.">Purge {{ item.slug }} ({{ item.days }}d)</button>
         </form>
         {% endfor %}
       </div>
