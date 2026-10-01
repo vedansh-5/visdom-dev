@@ -21,7 +21,7 @@ catches it.
 A healthy answer:
 
 ```json
-{"status": "healthy", "checks": {"database": "ok", "visdom": "3 of 3 answering"}}
+{"status": "healthy", "checks": {"database": "ok", "visdom": "3 of 3 answering", "metering": "ok"}}
 ```
 
 **Setting it up**, about five minutes: make a free account at uptimerobot.com or
@@ -57,11 +57,20 @@ Most of what has gone wrong so far has been one container down or the disk
 filling with build cache. `docker compose up -d` brings back the first;
 `docker builder prune -f` fixes the second.
 
+## Metering
+
+The usage sampler writes nothing in a quiet hour, so one that has stopped looks
+the same as one with nothing to do. Each run now leaves a timestamp, and the
+`metering` check reads it: `ok`, or `last ran N minutes ago` with a 503 once
+five runs in a row have been missed (five minutes at the default interval). A
+restart misses one or two, which is inside the allowance.
+
+If it fires, `docker compose logs gateway | grep "usage sample"` says why, and
+`docker compose restart gateway` starts it again. Usage from the gap is lost
+only for instances that also restarted, since the rest keep counting.
+
 ## What is still not watched
 
-- **The usage sampler.** If it stops, metering silently stops with it, and
-  nothing here would say so. Catching it needs the last tick recorded somewhere
-  a check can read, which means a migration, so it is a separate piece of work.
 - **Certificate expiry.** Caddy renews on its own, and an expired certificate
   would show up as the uptime check failing, which is late but not silent.
 - **Slow.** These checks are up or down only. A deployment that answers every
