@@ -21,6 +21,7 @@ from sqlalchemy.orm import joinedload
 from app import account_deletion
 from app.admin.activity import drop_workspace
 from app.models import (
+    AdminAction,
     APIKey,
     Membership,
     SharedLink,
@@ -194,6 +195,35 @@ def notify_owners(db, key_ids, send):
 def due_key_ids(db):
     now = utcnow()
     return [str(key.id) for key, _why in unused_keys(db) if is_due(key, now)]
+
+
+AUTOMATIC = "automatic"
+
+
+def revoke_due_keys(db):
+    """Switch off the keys whose owners were warned and whose date has passed.
+
+    The warning named the date, so this is keeping to it rather than deciding
+    anything new. A key used since its warning is no longer due and is left
+    alone. Each one is recorded in the audit trail, with nobody's name on it.
+    """
+    due = due_key_ids(db)
+    if not due:
+        return []
+    revoked = revoke_unused_keys(db, due)
+    for key_id, _name in revoked:
+        db.add(
+            AdminAction(
+                admin_email=AUTOMATIC,
+                action="update",
+                model="APIKey",
+                row_id=key_id,
+                changes={"is_active": False, "revoked_from": "notice period ended"},
+            )
+        )
+    if revoked:
+        db.commit()
+    return revoked
 
 
 def expired_links(db):
@@ -376,7 +406,10 @@ def findings(db):
         },
         {
             "title": "Keys nobody is using",
-            "note": f"Active keys never used, or unused for {STALE_KEY_DAYS} days.",
+            "note": (
+                f"Active keys never used, or unused for {STALE_KEY_DAYS} days. Once an "
+                "owner has been told, the key is switched off by itself when its date passes."
+            ),
             "rows": [
                 f"{key.name} ({key.owner.email if key.owner else 'unknown'}) - {why}"
                 for key, why in unused_keys(db)
