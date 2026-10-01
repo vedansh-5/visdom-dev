@@ -1489,6 +1489,51 @@ def test_only_keys_past_their_notice_are_revoked_as_due(admin_client):
     assert db.get(APIKey, waiting.id).is_active is True
 
 
+def test_keys_past_their_notice_are_switched_off_without_anyone_pressing_a_button(admin_client):
+    import datetime
+
+    from app.admin import janitor
+    from app.models import AdminAction, APIKey
+
+    now = datetime.datetime.now(datetime.timezone.utc)
+    day = datetime.timedelta(days=1)
+    db = admin_client.staff_db
+    owner = _owner(db)
+    overdue = _key(db, owner, "overdue")
+    waiting = _key(db, owner, "waiting")
+    used_since = _key(db, owner, "used-since", used_days_ago=2)
+    never_told = _key(db, owner, "never-told")
+    overdue.owner_notified_at, overdue.revoke_after = now - 31 * day, now - day
+    waiting.owner_notified_at, waiting.revoke_after = now - 5 * day, now + 25 * day
+    used_since.owner_notified_at, used_since.revoke_after = now - 31 * day, now - day
+    db.commit()
+
+    revoked = janitor.revoke_due_keys(db)
+
+    assert [name for _id, name in revoked] == ["overdue"]
+    db.expire_all()
+    assert db.get(APIKey, overdue.id).is_active is False
+    assert db.get(APIKey, waiting.id).is_active is True
+    assert db.get(APIKey, used_since.id).is_active is True
+    assert db.get(APIKey, never_told.id).is_active is True
+
+    trail = db.query(AdminAction).filter(AdminAction.row_id == str(overdue.id)).one()
+    assert trail.admin_email == janitor.AUTOMATIC
+    assert trail.changes == {"is_active": False, "revoked_from": "notice period ended"}
+
+
+def test_with_nothing_due_the_automatic_revoke_does_nothing(admin_client):
+    from app.admin import janitor
+    from app.models import AdminAction
+
+    db = admin_client.staff_db
+    _key(db, _owner(db), "fine")
+    db.commit()
+
+    assert janitor.revoke_due_keys(db) == []
+    assert db.query(AdminAction).filter(AdminAction.model == "APIKey").count() == 0
+
+
 def test_using_a_key_after_its_notice_cancels_the_notice():
     import datetime
     import types
