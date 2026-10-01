@@ -9,6 +9,9 @@ Loads configuration settings from environment variables or a local .env file.
 Manages database paths, JWT encryption secrets, and token expiration times.
 """
 
+import datetime
+
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -40,8 +43,15 @@ class Settings(BaseSettings):
     RETENTION_SWEEP_HOURS: int = 24
     RETENTION_ENFORCE: bool = False
     RETENTION_TIMEOUT: float = 15.0
+    RETENTION_STARTS: datetime.date | None = None
+    RETENTION_WARN_DAYS: int = 3
     ACCOUNT_DELETION_HOURS: int = 6
 
     model_config = SettingsConfigDict(env_file=".env")
+
+    @field_validator("RETENTION_STARTS", mode="before")
+    @classmethod
+    def _blank_is_unset(cls, value):
+        return value or None
 
 settings = Settings()

@@ -17,6 +17,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app import retention
 from app.admin.activity import evict_workspace
 from app.billing import at_limit, limit_for
 from app.config import settings
@@ -30,6 +31,7 @@ from app.schemas.workspace import (
     MyWorkspaceResponse,
     OwnerTransfer,
     PendingInviteResponse,
+    RetentionNotice,
     SharedLinkCreate,
     SharedLinkJoinRequest,
     SharedLinkJoinResponse,
@@ -202,6 +204,20 @@ def delete_workspace(
     workspace.trashed_at = utcnow()
     db.commit()
     evict_workspace(workspace.slug, "this workspace has been deleted")
+
+
+@router.get("/{workspace_id}/retention", response_model=RetentionNotice)
+def workspace_retention(
+    workspace_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """How long this workspace keeps work, and what is about to go."""
+    _require_member(db, workspace_id, current_user.id)
+    workspace = db.query(Workspace).filter(Workspace.id == workspace_id).first()
+    if not workspace:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workspace not found.")
+    return retention.notice(db, workspace)
 
 
 @router.patch("/{workspace_id}/star", response_model=MyWorkspaceResponse)
