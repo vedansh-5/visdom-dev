@@ -1003,7 +1003,7 @@ def test_nobody_can_be_moved_onto_an_archived_plan(admin_client):
             sort_order=9,
             is_public=False,
             archived_at=utcnow(),
-            limits={"workspaces": 1, "members": 1, "api_keys": 1, "storage_mb": 1},
+            limits={"workspaces": 1, "members": 1, "api_keys": 1, "storage_mb": 1, "workspace_storage_mb": 1},
             features=[],
         )
     )
@@ -1050,7 +1050,11 @@ def test_support_cannot_reach_the_plan_moves_page(admin_client):
     assert db.get(User, user.id).tier == "free"
 
 
-def _plan_form(plan_id="team", limits='{"workspaces": 3, "members": 5, "api_keys": 4, "storage_mb": 2048}', **extra):
+def _plan_form(
+    plan_id="team",
+    limits='{"workspaces": 3, "members": 5, "api_keys": 4, "storage_mb": 2048, "workspace_storage_mb": 1024}',
+    **extra,
+):
     form = {
         "id": plan_id,
         "name": "Team",
@@ -1073,7 +1077,13 @@ def test_a_superadmin_can_add_a_plan(admin_client):
 
     admin_client.staff_db.expire_all()
     plan = admin_client.staff_db.get(Plan, "team")
-    assert plan.limits == {"workspaces": 3, "members": 5, "api_keys": 4, "storage_mb": 2048}
+    assert plan.limits == {
+        "workspaces": 3,
+        "members": 5,
+        "api_keys": 4,
+        "storage_mb": 2048,
+        "workspace_storage_mb": 1024,
+    }
     assert plan.features == ["3 workspaces"]
 
 
@@ -1112,7 +1122,10 @@ def test_editing_a_plan_changes_its_limits_but_never_its_id(admin_client):
             "price": "29",
             "sort_order": "1",
             "is_public": "y",
-            "limits": '{"workspaces": 15, "members": null, "api_keys": 20, "storage_mb": 10240}',
+            "limits": (
+                '{"workspaces": 15, "members": null, "api_keys": 20, '
+                '"storage_mb": 10240, "workspace_storage_mb": 5120}'
+            ),
             "features": "[]",
             "retention_days": "90",
         },

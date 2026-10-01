@@ -18,9 +18,10 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from app.billing import limit_for
 from app.dependencies import get_current_user, get_db
 from app.models import User, Workspace, WorkspaceUsageHour, utcnow
-from app.usage import latest_storage, owned_workspace_ids
+from app.usage import MEGABYTE, latest_storage, owned_workspace_ids
 
 router = APIRouter(prefix="/usage", tags=["usage"])
 
@@ -69,8 +70,10 @@ def my_usage(current_user: User = Depends(get_current_user), db: Session = Depen
         }
         for ws in workspaces
     ]
+    per_workspace_mb = limit_for(db, current_user.tier, "workspace_storage_mb")
     return {
         "period_start": since.isoformat(),
+        "workspace_storage_limit": None if per_workspace_mb is None else per_workspace_mb * MEGABYTE,
         "totals": {
             "active_minutes": sum(row["active_minutes"] for row in rows),
             "storage_bytes": sum(row["storage_bytes"] for row in rows),
