@@ -19,7 +19,6 @@ from sqlalchemy.orm import Session
 
 from app import retention
 from app.admin.activity import evict_workspace
-from app.billing import at_limit, limit_for
 from app.config import settings
 from app.dependencies import commit_or_conflict, get_current_user, get_db
 from app.email import build_share_link_url, send_workspace_invite_email
@@ -41,6 +40,7 @@ from app.schemas.workspace import (
 )
 from app.security import get_password_hash, verify_password
 from app.usage import (
+    allowance,
     members_used,
     refuse_if_at_limit,
     refuse_if_full,
@@ -413,7 +413,8 @@ def transfer_ownership(
 
     new_owner = target.user
     tier = new_owner.tier or "free"
-    if at_limit(db, tier, "workspaces", workspaces_used(db, new_owner)):
+    room = allowance(db, new_owner, "workspaces")
+    if room is not None and workspaces_used(db, new_owner) >= room:
         raise HTTPException(
             status_code=status.HTTP_402_PAYMENT_REQUIRED,
             detail=f"{new_owner.email} has no room for another workspace on the {tier} plan.",
@@ -427,7 +428,7 @@ def transfer_ownership(
         )
         .count()
     )
-    ceiling = limit_for(db, tier, "members")
+    ceiling = allowance(db, new_owner, "members")
     if ceiling is not None and members_used(db, new_owner) + arriving > ceiling:
         raise HTTPException(
             status_code=status.HTTP_402_PAYMENT_REQUIRED,

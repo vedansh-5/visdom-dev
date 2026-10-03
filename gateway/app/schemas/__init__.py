@@ -178,6 +178,7 @@ class SubscriptionResponse(BaseModel):
     plan: PlanResponse
     usage: SubscriptionUsage
     support_contact: Optional[str] = None
+    limits_bypassed: bool = False
 
 
 class SubscriptionUpdate(BaseModel):
