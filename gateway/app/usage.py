@@ -16,7 +16,7 @@ from sqlalchemy import and_, func
 from sqlalchemy.orm import Session
 
 from app.billing import at_limit, limit_for
-from app.models import APIKey, Membership, User, Workspace, WorkspaceUsageHour
+from app.models import APIKey, Membership, User, Workspace, WorkspaceInvite, WorkspaceUsageHour
 
 
 def owned_workspace_ids(db: Session, user: User, include_trashed: bool = False) -> list:
@@ -43,6 +43,28 @@ def members_used(db: Session, user: User) -> int:
         )
         .count()
     )
+
+
+def invites_waiting(db: Session, user: User) -> int:
+    """Invites sent and not yet answered, across the workspaces the account owns.
+
+    Both kinds: someone with an account who has not accepted, and an address
+    with no account yet. Each one is a seat promised to somebody.
+    """
+    owned = owned_workspace_ids(db, user)
+    if not owned:
+        return 0
+    unanswered = (
+        db.query(Membership)
+        .filter(
+            Membership.workspace_id.in_(owned),
+            Membership.user_id != user.id,
+            Membership.status == "pending_acceptance",
+        )
+        .count()
+    )
+    unregistered = db.query(WorkspaceInvite).filter(WorkspaceInvite.workspace_id.in_(owned)).count()
+    return unanswered + unregistered
 
 
 def api_keys_used(db: Session, user: User) -> int:
@@ -74,6 +96,51 @@ def refuse_if_at_limit(db: Session, user: User, resource: str) -> None:
     raise HTTPException(
         status_code=status.HTTP_402_PAYMENT_REQUIRED,
         detail=_REFUSALS[resource].format(plan=tier),
+    )
+
+
+def refuse_if_no_seat(db: Session, owner: User) -> None:
+    """Stop an invite or an approval that the owner's plan has no seat for.
+
+    Invites still waiting count as taken. Counting only the people who had
+    accepted let an owner send any number of invites while under the limit and
+    end up with all of them as members.
+    """
+    tier = owner.tier or "free"
+    ceiling = limit_for(db, tier, "members")
+    if ceiling is None:
+        return
+    waiting = invites_waiting(db, owner)
+    if members_used(db, owner) + waiting < ceiling:
+        return
+    detail = f"The {tier} plan allows {ceiling} team members and every seat is taken"
+    if waiting:
+        detail += (
+            f", counting {waiting} invite{'' if waiting == 1 else 's'} still waiting. "
+            "Cancel one to free a seat."
+        )
+    else:
+        detail += "."
+    raise HTTPException(status_code=status.HTTP_402_PAYMENT_REQUIRED, detail=detail)
+
+
+def refuse_if_full(db: Session, owner: User) -> None:
+    """Stop someone joining a workspace whose owner's plan is already full.
+
+    An invite holds a seat, so accepting one normally finds room. This is for
+    the invite that was sent before seats were held, or the plan that shrank
+    while it waited.
+    """
+    tier = owner.tier or "free"
+    ceiling = limit_for(db, tier, "members")
+    if ceiling is None or members_used(db, owner) < ceiling:
+        return
+    raise HTTPException(
+        status_code=status.HTTP_402_PAYMENT_REQUIRED,
+        detail=(
+            "This workspace has no room for another member on its owner's plan. "
+            "Ask one of its admins."
+        ),
     )
 
 

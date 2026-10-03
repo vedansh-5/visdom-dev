@@ -40,7 +40,13 @@ from app.schemas.workspace import (
     WorkspaceCreate,
 )
 from app.security import get_password_hash, verify_password
-from app.usage import members_used, refuse_if_at_limit, workspaces_used
+from app.usage import (
+    members_used,
+    refuse_if_at_limit,
+    refuse_if_full,
+    refuse_if_no_seat,
+    workspaces_used,
+)
 
 router = APIRouter(prefix="/workspaces", tags=["workspaces"])
 
@@ -84,6 +90,12 @@ def _require_admin(db: Session, workspace_id: uuid.UUID, user_id: uuid.UUID) -> 
             detail="Only workspace admins can perform this action.",
         )
     return membership
+
+
+def _owner_of(db: Session, workspace: Workspace) -> User | None:
+    if workspace.created_by is None:
+        return None
+    return db.query(User).filter(User.id == workspace.created_by).first()
 
 
 def _to_member_response(membership: Membership) -> MemberResponse:
@@ -252,8 +264,7 @@ def invite_member(
     if not workspace:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workspace not found.")
 
-    owner = db.query(User).filter(User.id == workspace.created_by).first()
-    refuse_if_at_limit(db, owner or current_user, "members")
+    refuse_if_no_seat(db, _owner_of(db, workspace) or current_user)
 
     email_lower = invite.email.strip().lower()
     invitee = db.query(User).filter(User.email == email_lower).first()
@@ -532,6 +543,10 @@ def approve_member(
             detail="There's no join request awaiting approval for this member.",
         )
 
+    owner = _owner_of(db, membership.workspace)
+    if owner is not None:
+        refuse_if_no_seat(db, owner)
+
     membership.status = "active"
     db.commit()
     db.refresh(membership)
@@ -553,6 +568,10 @@ def accept_invite(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="There's no pending invite for you to accept in this workspace.",
         )
+
+    owner = _owner_of(db, membership.workspace)
+    if owner is not None and owner.id != current_user.id:
+        refuse_if_full(db, owner)
 
     membership.status = "active"
     db.commit()
