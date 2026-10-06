@@ -22,6 +22,7 @@ KINDS = {
     "sharedlink": "shared link",
     "workspaceinvite": "invite",
     "platformswitch": "platform switch",
+    "staffgrant": "permission",
 }
 
 FIELDS = {
@@ -179,6 +180,13 @@ def sentence(action, model, changes, subject) -> str:
     elif key == "membership" and "role" in changes:
         lead = f"Changed {subject} to {changes['role']}"
         done.add("role")
+    elif key == "staffgrant" and "granted" in changes:
+        what = str(changes.get("permission", subject))
+        what = what[:1].lower() + what[1:]
+        who = changes.get("to", "someone")
+        if changes["granted"]:
+            return f"Gave {who} permission to {what}."
+        return f"Took away from {who} the permission to {what}."
     elif key == "platformswitch" and "is_on" in changes:
         lead = (
             "Switched the limit bypass on for every account"

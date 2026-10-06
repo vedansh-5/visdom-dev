@@ -30,6 +30,7 @@ PAGES = [
     ("/admin/admin-action/list", "the audit trail"),
     ("/admin/janitor", "the cleanup page"),
     ("/admin/account-trash", "the account trash"),
+    ("/admin/permissions", "the permissions page"),
 ]
 
 
@@ -1992,4 +1993,118 @@ def test_only_a_superadmin_reaches_the_account_trash(admin_client, role):
     assert "Account trash" not in admin_client.get("/admin/").text
     db.expire_all()
     assert db.get(User, user.id).trashed_at is None
+
+
+def _staff(db, email, role):
+    member = AdminUser(
+        id=uuid.uuid4(),
+        email=email,
+        password_hash=get_password_hash("their-staff-password"),
+        role=role,
+        is_active=True,
+    )
+    db.add(member)
+    db.commit()
+    return member
+
+
+def _sign_in(admin_client, email, password="their-staff-password"):
+    admin_client.post("/admin/login", data={"username": email, "password": password})
+
+
+def _grant(admin_client, group=(), single=()):
+    form = {"group": list(group), "single": [f"{permission}|{member.id}" for permission, member in single]}
+    return admin_client.post("/admin/permissions", data=form, follow_redirects=False)
+
+
+def test_a_grant_to_every_admin_opens_the_audit_trail_to_them(admin_client):
+    db = admin_client.staff_db
+    _staff(db, "group-admin@example.com", "admin")
+
+    saved = _grant(admin_client, group=["see_audit"])
+    assert "Saved+1+change" in saved.headers["location"]
+
+    _sign_in(admin_client, "group-admin@example.com")
+    assert admin_client.get("/admin/admin-action/list").status_code == 200
+    assert "Gave every admin permission to see the audit trail." in admin_client.get(
+        "/admin/admin-action/list"
+    ).text
+    assert admin_client.get("/admin/account-trash").status_code == 403
+    assert admin_client.get("/admin/permissions").status_code == 403
+
+
+def test_a_grant_to_one_admin_does_not_reach_the_others(admin_client):
+    db = admin_client.staff_db
+    chosen = _staff(db, "chosen-admin@example.com", "admin")
+    _staff(db, "other-admin@example.com", "admin")
+
+    _grant(admin_client, single=[("trash_accounts", chosen)])
+
+    _sign_in(admin_client, "chosen-admin@example.com")
+    assert admin_client.get("/admin/account-trash").status_code == 200
+    _sign_in(admin_client, "other-admin@example.com")
+    assert admin_client.get("/admin/account-trash").status_code == 403
+
+
+def test_trashing_and_deleting_are_granted_apart(admin_client):
+    from app.models import User
+
+    db = admin_client.staff_db
+    member = _staff(db, "trasher-admin@example.com", "admin")
+    user = _account(db, email="half-granted@example.com")
+    _grant(admin_client, single=[("trash_accounts", member)])
+    _sign_in(admin_client, "trasher-admin@example.com")
+
+    assert "notice_kind=success" in _trash_post(admin_client, "trash", [user]).headers["location"]
+    refused = _trash_post(admin_client, "delete", [user])
+    assert "notice_kind=error" in refused.headers["location"]
+    db.expire_all()
+    assert db.get(User, user.id) is not None
+
+
+def test_taking_a_grant_back_closes_the_door_again(admin_client):
+    db = admin_client.staff_db
+    _staff(db, "briefly-admin@example.com", "admin")
+    _grant(admin_client, group=["see_audit"])
+
+    taken = _grant(admin_client)
+    assert "Saved+1+change" in taken.headers["location"]
+
+    trail = admin_client.get("/admin/admin-action/list").text
+    assert "Took away from every admin the permission to see the audit trail." in trail
+    _sign_in(admin_client, "briefly-admin@example.com")
+    assert admin_client.get("/admin/admin-action/list", follow_redirects=False).status_code == 403
+
+
+def test_support_cannot_be_given_anything(admin_client):
+    db = admin_client.staff_db
+    helper = _staff(db, "helper-support@example.com", "support")
+
+    _grant(admin_client, group=["see_audit"], single=[("trash_accounts", helper)])
+
+    page = admin_client.get("/admin/permissions").text
+    assert "helper-support@example.com" not in page
+    _sign_in(admin_client, "helper-support@example.com")
+    assert admin_client.get("/admin/admin-action/list", follow_redirects=False).status_code == 403
+    assert admin_client.get("/admin/account-trash").status_code == 403
+
+
+def test_saving_the_same_permissions_changes_nothing(admin_client):
+    from app.models import AdminAction
+
+    db = admin_client.staff_db
+    _staff(db, "steady-admin@example.com", "admin")
+    _grant(admin_client, group=["see_audit"])
+    before = db.query(AdminAction).count()
+
+    again = _grant(admin_client, group=["see_audit"])
+    assert "notice_kind=info" in again.headers["location"]
+    assert db.query(AdminAction).count() == before
+
+
+def test_an_unknown_permission_is_ignored(admin_client):
+    from app.models import StaffGrant
+
+    _grant(admin_client, group=["become_superadmin"])
+    assert admin_client.staff_db.query(StaffGrant).count() == 0
 
