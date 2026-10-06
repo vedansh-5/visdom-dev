@@ -74,8 +74,10 @@
   <form method="post" class="card">
     <div class="ap-bulk">
       <span class="ap-bulk-label">Ticked</span>
-      <button type="submit" class="ap-act" name="intent" value="restore">Restore</button>
+      <button type="submit" class="ap-act" name="intent" value="restore"
+        {% if not may_trash %}disabled{% endif %}>Restore</button>
       <button type="submit" class="ap-act is-danger" name="intent" value="delete" data-danger
+        {% if not may_delete %}disabled{% endif %}
         data-confirm-label="Delete for good" data-confirm-title="Delete the ticked accounts for good?"
         data-confirm="This cannot be undone. Each account goes, with the workspaces only it uses and their plots.">Delete for good</button>
       <span class="ap-bulk-label ap-trash-count">{{ trashed | length }} in the trash</span>
@@ -133,6 +135,7 @@
     <form method="post">
       <div class="ap-bulk">
         <button type="submit" class="ap-act is-danger" name="intent" value="trash" data-danger
+          {% if not may_trash %}disabled{% endif %}
           data-confirm-label="Move to trash" data-confirm-title="Move the ticked accounts to the trash?"
           data-confirm="They are signed out and cannot sign in until restored. Nothing is deleted.">Move ticked accounts to the trash</button>
         <span class="ap-bulk-label ap-trash-count">

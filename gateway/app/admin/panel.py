@@ -26,7 +26,7 @@ from starlette.responses import RedirectResponse, Response
 
 from app import account_deletion, billing
 from app import email as outbound
-from app.admin import activity, janitor, leftovers, roles, wording
+from app.admin import activity, janitor, leftovers, permissions, roles, wording
 from app.admin.audit import StaffAuditBackend, remember
 from app.admin.limit_boxes import FeatureLines, LimitsField
 from app.config import settings
@@ -100,6 +100,7 @@ class StaffAuth(AuthenticationBackend):
                 return RedirectResponse(request.url_for("admin:login"), status_code=302)
             request.session[ROLE_KEY] = admin.role
             request.session[EMAIL_KEY] = admin.email
+            request.session[permissions.GRANTS_KEY] = permissions.held_by(db, admin)
         finally:
             db.close()
         return True
@@ -1344,7 +1345,9 @@ class AccountTrashView(BaseView):
 
     @staticmethod
     def _allowed(request: Request) -> bool:
-        return roles.can_trash_accounts(request.session.get(ROLE_KEY))
+        return permissions.has(request, permissions.TRASH_ACCOUNTS) or permissions.has(
+            request, permissions.DELETE_ACCOUNTS
+        )
 
     @expose("/account-trash", methods=["GET", "POST"])
     async def account_trash(self, request: Request):
@@ -1400,7 +1403,14 @@ class AccountTrashView(BaseView):
         return await self.templates.TemplateResponse(
             request,
             "sqladmin/account_trash.html",
-            {"accounts": accounts, "matching": matching, "search": search, "trashed": trashed},
+            {
+                "accounts": accounts,
+                "matching": matching,
+                "search": search,
+                "trashed": trashed,
+                "may_trash": permissions.has(request, permissions.TRASH_ACCOUNTS),
+                "may_delete": permissions.has(request, permissions.DELETE_ACCOUNTS),
+            },
         )
 
     def _act(self, request: Request, form):
@@ -1413,11 +1423,13 @@ class AccountTrashView(BaseView):
                 continue
         if not picked:
             return "info", "No account was ticked, so nothing was changed."
-        if intent == "trash":
-            return self._trash(request, picked)
-        if intent == "restore":
-            return self._restore(request, picked)
+        if intent in ("trash", "restore"):
+            if not permissions.has(request, permissions.TRASH_ACCOUNTS):
+                return "error", "You have not been given permission to trash or restore accounts."
+            return self._trash(request, picked) if intent == "trash" else self._restore(request, picked)
         if intent == "delete":
+            if not permissions.has(request, permissions.DELETE_ACCOUNTS):
+                return "error", "You have not been given permission to delete accounts for good."
             return self._delete(request, picked)
         return "error", "Nothing was changed."
 
@@ -1495,6 +1507,77 @@ class AccountTrashView(BaseView):
         if stayed:
             message += " Kept: " + "; ".join(stayed) + "."
         return ("success" if gone and not stayed else "info" if gone else "error"), message
+
+
+class PermissionsView(BaseView):
+    """Handing a superadmin's own powers to admins, one at a time.
+
+    Superadmin only, always. A grant goes to every admin or to one by name,
+    takes effect on that person's next page, and is recorded like any other
+    change.
+    """
+
+    name = "Permissions"
+    icon = "fa-solid fa-key"
+    category = "People"
+    category_icon = "fa-solid fa-users"
+
+    def is_visible(self, request: Request) -> bool:
+        return self._allowed(request)
+
+    def is_accessible(self, request: Request) -> bool:
+        return self._allowed(request)
+
+    @staticmethod
+    def _allowed(request: Request) -> bool:
+        return request.session.get(ROLE_KEY) == roles.SUPERADMIN
+
+    @expose("/permissions", methods=["GET", "POST"])
+    async def permissions_page(self, request: Request):
+        if not self._allowed(request):
+            return Response("Forbidden", status_code=403)
+
+        db = SessionLocal()
+        try:
+            if request.method == "POST":
+                form = await request.form()
+                group = set(form.getlist("group"))
+                single = {tuple(value.split("|", 1)) for value in form.getlist("single") if "|" in value}
+                changed = permissions.save(db, group, single, request.session.get(EMAIL_KEY))
+            else:
+                changed = None
+            standing = permissions.table(db)
+            admins = [{"id": str(admin.id), "email": admin.email} for admin in standing["admins"]]
+        finally:
+            db.close()
+
+        if changed is not None:
+            for change in changed:
+                label = permissions.GRANTABLE[change["permission"]][0]
+                _record_action(
+                    request, "update", "StaffGrant", change["permission"],
+                    {"granted": change["granted"], "permission": label, "to": change["to"]},
+                )
+            count = len(changed)
+            message = (
+                f"Saved {count} change{'' if count == 1 else 's'}." if count else "Nothing was changed."
+            )
+            query = urlencode({"notice": message, "notice_kind": "success" if count else "info"})
+            return RedirectResponse(request.url.replace(query=query), status_code=303)
+
+        return await self.templates.TemplateResponse(
+            request,
+            "sqladmin/permissions.html",
+            {
+                "grantable": [
+                    {"key": key, "label": label, "about": about}
+                    for key, (label, about) in permissions.GRANTABLE.items()
+                ],
+                "admins": admins,
+                "group": standing["group"],
+                "single": standing["single"],
+            },
+        )
 
 
 class JanitorView(BaseView):
@@ -1863,6 +1946,12 @@ class AdminActionAdmin(RoleScopedView, model=AdminAction):
     icon = "fa-solid fa-clipboard-list"
     category = "Operations"
     category_icon = "fa-solid fa-screwdriver-wrench"
+    def is_visible(self, request: Request) -> bool:
+        return permissions.has(request, permissions.SEE_AUDIT)
+
+    def is_accessible(self, request: Request) -> bool:
+        return permissions.has(request, permissions.SEE_AUDIT)
+
     column_list = [AdminAction.created_at, AdminAction.admin_email, "what"]
     column_labels = {
         AdminAction.created_at: "When (UTC)",
@@ -2116,6 +2205,7 @@ def mount_admin(app, secret_key, base_url="/admin"):
     for view in VIEWS:
         admin.add_view(view)
     admin.add_view(AccountTrashView)
+    admin.add_view(PermissionsView)
     admin.add_view(PlanMovesView)
     admin.add_view(JanitorView)
     admin.add_view(UsageView)
