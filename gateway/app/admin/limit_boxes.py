@@ -90,3 +90,17 @@ class LimitsField(wtforms.Field):
             self.process_errors.extend(problems)
         else:
             self.data = limits
+
+
+class FeatureLines(wtforms.TextAreaField):
+    """A plan's feature bullets as a list, typed one to a line."""
+
+    def _value(self):
+        if self.raw_data:
+            return self.raw_data[0]
+        return "\n".join(self.data or [])
+
+    def process_formdata(self, valuelist):
+        if valuelist:
+            self.data = [line.strip() for line in valuelist[0].splitlines() if line.strip()]
+

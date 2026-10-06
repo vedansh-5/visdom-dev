@@ -28,7 +28,7 @@ from app import billing
 from app import email as outbound
 from app.admin import activity, janitor, leftovers, roles
 from app.admin.audit import StaffAuditBackend
-from app.admin.limit_boxes import LimitsField
+from app.admin.limit_boxes import FeatureLines, LimitsField
 from app.config import settings
 from app.database import SessionLocal, engine
 from app.models import (
@@ -894,7 +894,7 @@ class PlanAdmin(RoleScopedView, model=Plan):
         "features",
         "retention_days",
     ]
-    form_overrides = {"limits": LimitsField}
+    form_overrides = {"limits": LimitsField, "features": FeatureLines}
     form_args = {
         "id": {"description": "Lowercase letters, numbers and hyphens. Cannot be changed later."},
         "price": {"description": "Monthly price in whole units. Leave empty to show 'Custom'."},
@@ -914,7 +914,11 @@ class PlanAdmin(RoleScopedView, model=Plan):
             "default": dict.fromkeys(billing.LIMIT_KEYS, 0),
             "description": "Leave a box empty for unlimited. Storage is in MB, so 1024 is 1 GB.",
         },
-        "features": {"default": [], "description": "The bullet points on the pricing page."},
+        "features": {
+            "default": [],
+            "description": "The bullet points on the pricing page, one to a line.",
+            "render_kw": {"rows": 6},
+        },
         "retention_days": {"description": "Leave empty for unlimited."},
     }
 

@@ -1071,7 +1071,7 @@ def _plan_form(plan_id="team", limits=None, **extra):
         "price": "12",
         "sort_order": "5",
         "is_public": "y",
-        "features": '["3 workspaces"]',
+        "features": "3 workspaces",
         "retention_days": "30",
     }
     form.update(_limit_boxes(TEAM_LIMITS if limits is None else limits))
@@ -1089,6 +1089,26 @@ def test_a_superadmin_can_add_a_plan(admin_client):
     plan = admin_client.staff_db.get(Plan, "team")
     assert plan.limits == TEAM_LIMITS
     assert plan.features == ["3 workspaces"]
+
+
+def test_features_are_typed_one_to_a_line(admin_client):
+    from app.models import Plan
+
+    typed = "5 workspaces\n\n  Priority support  \r\nShared links\n"
+    made = admin_client.post(
+        "/admin/plan/create", data=_plan_form("lined", features=typed), follow_redirects=False
+    )
+    assert made.status_code in (302, 303), made.text
+
+    admin_client.staff_db.expire_all()
+    assert admin_client.staff_db.get(Plan, "lined").features == [
+        "5 workspaces",
+        "Priority support",
+        "Shared links",
+    ]
+    page = admin_client.get("/admin/plan/edit/lined").text
+    assert "5 workspaces\nPriority support\nShared links" in page.replace("\r\n", "\n")
+    assert "[&#34;" not in page and '["5' not in page
 
 
 def test_an_empty_limit_box_means_unlimited(admin_client):
@@ -1169,7 +1189,7 @@ def test_editing_a_plan_changes_its_limits_but_never_its_id(admin_client):
             "price": "29",
             "sort_order": "1",
             "is_public": "y",
-            "features": "[]",
+            "features": "",
             "retention_days": "90",
             **_limit_boxes(
                 {
