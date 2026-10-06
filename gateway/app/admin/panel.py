@@ -26,8 +26,8 @@ from starlette.responses import RedirectResponse, Response
 
 from app import account_deletion, billing
 from app import email as outbound
-from app.admin import activity, janitor, leftovers, roles
-from app.admin.audit import StaffAuditBackend
+from app.admin import activity, janitor, leftovers, roles, wording
+from app.admin.audit import StaffAuditBackend, remember
 from app.admin.limit_boxes import FeatureLines, LimitsField
 from app.config import settings
 from app.database import SessionLocal, engine
@@ -148,6 +148,7 @@ class ChangeableView(RoleScopedView):
         is applied to what was submitted instead, which also covers a request
         that never came from the form.
         """
+        remember(request, data, model, is_created)
         allowed = roles.editable_fields(
             request.session.get(ROLE_KEY), self.model.__name__
         )
@@ -944,6 +945,7 @@ class PlanAdmin(RoleScopedView, model=Plan):
         The id is what accounts point at, so changing it would move every
         account on the plan onto whatever the new id named.
         """
+        remember(request, data, model, is_created)
         role = request.session.get(ROLE_KEY)
         if is_created:
             if not roles.can_add(role, self.model.__name__):
@@ -1045,6 +1047,7 @@ class AdminUserAdmin(RoleScopedView, model=AdminUser):
         self, data: dict, model, is_created: bool, request: Request
     ) -> None:
         """Creating checks the whole form. Editing may only stop an account."""
+        remember(request, data, model, is_created)
         role = request.session.get(ROLE_KEY)
         if not is_created:
             self._check_edit(data, model, role)
@@ -1794,10 +1797,10 @@ def janitor_findings():
 
 
 _AUDIT_LABELS = {
-    "User": (User, lambda row: row.email),
-    "Workspace": (Workspace, lambda row: row.slug),
-    "APIKey": (APIKey, lambda row: f"{row.name} ({_email_of(row.owner)})"),
-    "AdminUser": (AdminUser, lambda row: row.email),
+    "user": (User, lambda row: row.email),
+    "workspace": (Workspace, lambda row: row.slug),
+    "apikey": (APIKey, lambda row: f"{row.name} ({_email_of(row.owner)})"),
+    "adminuser": (AdminUser, lambda row: row.email),
 }
 
 
@@ -1811,7 +1814,7 @@ def _audit_subject(model, name):
     """
     if not model.row_id:
         return "unknown"
-    known = _AUDIT_LABELS.get(model.model)
+    known = _AUDIT_LABELS.get("".join(ch for ch in str(model.model).lower() if ch.isalnum()))
     if known is None:
         return model.row_id
     table, label = known
@@ -1833,7 +1836,19 @@ def _audit_subject(model, name):
     recorded = (model.changes or {}).get("purged_from_trash")
     if recorded:
         return f"{recorded} (purged)"
+    named = (model.changes or {}).get("email")
+    if named:
+        return f"{named} (deleted)"
     return f"{model.row_id} (deleted)"
+
+
+def _audit_sentence(model, name):
+    """What happened, as one line a person can read."""
+    return wording.sentence(model.action, model.model, model.changes, _audit_subject(model, name))
+
+
+def _audit_who(model, name):
+    return model.admin_email or "automatic"
 
 
 class AdminActionAdmin(RoleScopedView, model=AdminAction):
@@ -1848,23 +1863,33 @@ class AdminActionAdmin(RoleScopedView, model=AdminAction):
     icon = "fa-solid fa-clipboard-list"
     category = "Operations"
     category_icon = "fa-solid fa-screwdriver-wrench"
-    column_list = [
+    column_list = [AdminAction.created_at, AdminAction.admin_email, "what"]
+    column_labels = {
+        AdminAction.created_at: "When (UTC)",
+        AdminAction.admin_email: "Who",
+        "what": "What happened",
+        AdminAction.action: "Kind of change",
+        AdminAction.model: "Kind of record",
+        AdminAction.row_id: "Record",
+        AdminAction.changes: "Stored values",
+    }
+    column_formatters = {
+        "what": _audit_sentence,
+        AdminAction.admin_email: _audit_who,
+        AdminAction.created_at: _to_the_minute("created_at"),
+    }
+    column_details_list = [
         AdminAction.created_at,
         AdminAction.admin_email,
+        "what",
         AdminAction.action,
         AdminAction.model,
         AdminAction.row_id,
         AdminAction.changes,
     ]
-    column_labels = {
-        AdminAction.created_at: "When",
-        AdminAction.admin_email: "Who",
-        AdminAction.action: "Did",
-        AdminAction.model: "To",
-        AdminAction.row_id: "Which",
-        AdminAction.changes: "Set",
-    }
-    column_formatters = {
+    column_formatters_detail = {
+        "what": _audit_sentence,
+        AdminAction.admin_email: _audit_who,
         AdminAction.row_id: _audit_subject,
         AdminAction.created_at: _to_the_minute("created_at"),
     }
