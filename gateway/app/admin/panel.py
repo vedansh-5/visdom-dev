@@ -1662,6 +1662,10 @@ def _audit_sentence(model, name):
     return wording.sentence(model.action, model.model, model.changes, _audit_subject(model, name))
 
 
+def _audit_when(model, name):
+    return model.created_at.strftime("%Y-%m-%d %H:%M:%S") if model.created_at else ""
+
+
 def _audit_who(model, name):
     return model.admin_email or "automatic"
 
@@ -1691,7 +1695,7 @@ class AdminActionAdmin(RoleScopedView, model=AdminAction):
     column_formatters = {
         "what": _audit_sentence,
         AdminAction.admin_email: _audit_who,
-        AdminAction.created_at: _to_the_minute("created_at"),
+        AdminAction.created_at: _audit_when,
     }
     column_details_list = [
         AdminAction.created_at,
@@ -1706,7 +1710,7 @@ class AdminActionAdmin(RoleScopedView, model=AdminAction):
         "what": _audit_sentence,
         AdminAction.admin_email: _audit_who,
         AdminAction.row_id: _audit_subject,
-        AdminAction.created_at: _to_the_minute("created_at"),
+        AdminAction.created_at: _audit_when,
     }
     column_sortable_list = [AdminAction.created_at, AdminAction.admin_email]
     column_default_sort = (AdminAction.created_at, True)
