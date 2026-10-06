@@ -29,6 +29,7 @@ PAGES = [
     ("/admin/admin-user/list", "staff accounts"),
     ("/admin/admin-action/list", "the audit trail"),
     ("/admin/janitor", "the cleanup page"),
+    ("/admin/account-trash", "the account trash"),
 ]
 
 
@@ -1757,3 +1758,166 @@ def test_using_a_key_after_its_notice_cancels_the_notice():
     )
     assert janitor.notice_is_current(key) is False
     assert janitor.is_due(key, now) is False
+
+
+def _trash_post(admin_client, intent, accounts, query=""):
+    form = {"intent": intent, "row_ids": [str(a.id) for a in accounts]}
+    return admin_client.post(f"/admin/account-trash{query}", data=form, follow_redirects=False)
+
+
+def test_trashing_locks_an_account_out_and_deletes_nothing(admin_client):
+    from app.models import AdminAction, User, Workspace
+
+    db = admin_client.staff_db
+    user = _account(db, email="to-the-trash@example.com")
+    workspace = _workspace(db, "trashed-owner-lab")
+    workspace.created_by = user.id
+    before = user.token_version or 0
+    db.commit()
+
+    done = _trash_post(admin_client, "trash", [user])
+    assert "notice_kind=success" in done.headers["location"]
+
+    db.expire_all()
+    trashed = db.get(User, user.id)
+    assert trashed.trashed_at is not None
+    assert trashed.trashed_by == "staff@example.com"
+    assert trashed.is_active is False
+    assert trashed.token_version == before + 1
+    assert db.get(Workspace, workspace.id) is not None
+    entry = db.query(AdminAction).filter(AdminAction.row_id == str(user.id)).one()
+    assert entry.changes == {"trashed": True, "email": "to-the-trash@example.com"}
+
+    page = admin_client.get("/admin/account-trash").text
+    assert page.count("to-the-trash@example.com") >= 1
+    assert "1 in the trash" in page
+
+
+def test_restoring_puts_an_account_back(admin_client):
+    from app.models import User
+
+    db = admin_client.staff_db
+    user = _account(db, email="back-again@example.com")
+    _trash_post(admin_client, "trash", [user])
+
+    done = _trash_post(admin_client, "restore", [user])
+    assert "notice_kind=success" in done.headers["location"]
+
+    db.expire_all()
+    back = db.get(User, user.id)
+    assert back.trashed_at is None and back.trashed_by is None
+    assert back.is_active is True
+    assert "The trash is empty." in admin_client.get("/admin/account-trash").text
+
+
+def test_an_account_can_only_be_deleted_from_the_trash(admin_client):
+    from app.models import User
+
+    db = admin_client.staff_db
+    user = _account(db, email="not-trashed-yet@example.com")
+
+    done = _trash_post(admin_client, "delete", [user])
+    assert "notice_kind=error" in done.headers["location"]
+    db.expire_all()
+    assert db.get(User, user.id) is not None
+
+
+def test_deleting_from_the_trash_removes_the_account_and_is_recorded(admin_client, monkeypatch):
+    from app import account_deletion
+    from app.models import AdminAction, User
+
+    monkeypatch.setattr(account_deletion, "drop_workspace", lambda workspace_id: {"bytes": 0})
+    db = admin_client.staff_db
+    user = _account(db, email="gone-for-good@example.com")
+    user_id = user.id
+    _trash_post(admin_client, "trash", [user])
+
+    done = _trash_post(admin_client, "delete", [user])
+    assert "Deleted+1+account+for+good" in done.headers["location"]
+
+    db.expire_all()
+    assert db.get(User, user_id) is None
+    entry = (
+        db.query(AdminAction)
+        .filter(AdminAction.row_id == str(user_id), AdminAction.action == "delete")
+        .one()
+    )
+    assert entry.admin_email == "staff@example.com"
+    assert entry.changes["email"] == "gone-for-good@example.com"
+    assert entry.changes["reason"] == "deleted from the trash by staff"
+
+
+def test_an_account_that_owns_a_shared_workspace_is_kept(admin_client):
+    from app.models import Membership, User
+
+    db = admin_client.staff_db
+    owner = _account(db, email="owner-of-shared@example.com")
+    member = _account(db, email="member-of-shared@example.com")
+    workspace = _workspace(db, "shared-lab")
+    workspace.created_by = owner.id
+    db.add(Membership(user_id=owner.id, workspace_id=workspace.id, role="admin", status="active"))
+    db.add(Membership(user_id=member.id, workspace_id=workspace.id, role="member", status="active"))
+    db.commit()
+    _trash_post(admin_client, "trash", [owner])
+
+    page = admin_client.get("/admin/account-trash").text
+    assert "Cannot be deleted yet: it owns shared-lab" in page
+
+    done = _trash_post(admin_client, "delete", [owner])
+    assert "notice_kind=error" in done.headers["location"]
+    assert "still+owns+shared-lab" in done.headers["location"]
+    db.expire_all()
+    assert db.get(User, owner.id) is not None
+
+
+def test_a_trashed_account_cannot_be_switched_back_on_from_its_form(admin_client):
+    from app.models import User
+
+    db = admin_client.staff_db
+    user = _account(db, email="form-cannot-revive@example.com")
+    _trash_post(admin_client, "trash", [user])
+
+    refused = admin_client.post(
+        f"/admin/user/edit/{user.id}", data=_user_form(user), follow_redirects=False
+    )
+    assert refused.status_code not in (302, 303)
+    db.expire_all()
+    assert db.get(User, user.id).is_active is False
+
+
+def test_the_trash_list_can_be_searched(admin_client):
+    db = admin_client.staff_db
+    _account(db, email="needle.trash@example.com")
+    _account(db, email="haystack.trash@example.com")
+
+    found = admin_client.get("/admin/account-trash?q=NEEDLE").text
+    assert "needle.trash@example.com" in found
+    assert "haystack.trash@example.com" not in found
+
+
+@pytest.mark.parametrize("role", ["admin", "support"])
+def test_only_a_superadmin_reaches_the_account_trash(admin_client, role):
+    from app.models import User
+
+    db = admin_client.staff_db
+    user = _account(db, email="not-theirs-to-trash@example.com")
+    db.add(
+        AdminUser(
+            id=uuid.uuid4(),
+            email=f"{role}-trash@example.com",
+            password_hash=get_password_hash("their-staff-password"),
+            role=role,
+            is_active=True,
+        )
+    )
+    db.commit()
+    admin_client.post(
+        "/admin/login", data={"username": f"{role}-trash@example.com", "password": "their-staff-password"}
+    )
+
+    assert admin_client.get("/admin/account-trash").status_code == 403
+    assert _trash_post(admin_client, "trash", [user]).status_code == 403
+    assert "Account trash" not in admin_client.get("/admin/").text
+    db.expire_all()
+    assert db.get(User, user.id).trashed_at is None
+

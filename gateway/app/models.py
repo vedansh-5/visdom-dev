@@ -73,6 +73,8 @@ class User(Base):
     created_at = Column(DateTime(timezone=True), default=utcnow)
     last_login_at = Column(DateTime(timezone=True), nullable=True)
     deletion_requested_at = Column(DateTime(timezone=True), nullable=True)
+    trashed_at = Column(DateTime(timezone=True), nullable=True)
+    trashed_by = Column(String, nullable=True)
 
     __table_args__ = (
         Index("ix_users_username_lower", func.lower(username), unique=True),

@@ -146,23 +146,33 @@ def erase(db: Session, user_id, now: datetime.datetime | None = None) -> dict | 
     )
     if user is None:
         return None
-
-    state = standing(db, user)
-    if state["blockers"]:
-        logging.warning(
-            "account %s is due for deletion but still runs %s",
-            user.id,
-            ", ".join(ws.slug for ws, _ in state["blockers"]),
-        )
-        return None
-
-    freed = 0
     try:
-        for workspace in state["leaving_with"]:
-            freed += drop_workspace(workspace.id)["bytes"]
+        return remove(db, user, f"asked for by the account holder {GRACE_DAYS} days earlier")
+    except StillNeeded as exc:
+        logging.warning("account %s is due for deletion but still runs %s", user.id, exc)
     except FilesKept as exc:
         logging.warning("account %s is due for deletion but kept: %s", user.id, exc)
-        return None
+    return None
+
+
+class StillNeeded(RuntimeError):
+    """The account still runs a workspace other people use."""
+
+
+def remove(db: Session, user: User, reason: str, staff_id=None, staff_email=None) -> dict:
+    """Remove an account and the workspaces only it uses, for good.
+
+    Refused with ``StillNeeded`` while the account is responsible for a
+    workspace other people use, and with ``FilesKept`` when an instance did not
+    confirm that the plot files are gone. Either way nothing has been removed.
+    """
+    state = standing(db, user)
+    if state["blockers"]:
+        raise StillNeeded(", ".join(ws.slug for ws, _ in state["blockers"]))
+
+    freed = 0
+    for workspace in state["leaving_with"]:
+        freed += drop_workspace(workspace.id)["bytes"]
 
     removed = []
     for workspace in state["leaving_with"]:
@@ -184,11 +194,14 @@ def erase(db: Session, user_id, now: datetime.datetime | None = None) -> dict | 
     row_id = str(user.id)
     db.add(
         AdminAction(
+            admin_id=staff_id,
+            admin_email=staff_email,
             action="delete",
             model="User",
             row_id=row_id,
             changes={
-                "reason": f"asked for by the account holder {GRACE_DAYS} days earlier",
+                "reason": reason,
+                "email": user.email,
                 "workspaces_removed": removed,
                 "bytes_freed": freed,
             },
@@ -197,6 +210,34 @@ def erase(db: Session, user_id, now: datetime.datetime | None = None) -> dict | 
     db.delete(user)
     db.commit()
     return {"user_id": row_id, "workspaces_removed": removed}
+
+
+def trash(db: Session, user: User, by: str | None) -> bool:
+    """Put an account in the trash. Returns whether it was not there already.
+
+    Nothing is removed. The account can no longer sign in, its sessions are
+    closed and its API keys stop working, until someone restores it. Unlike a
+    deletion the holder asked for, signing in does not undo this.
+    """
+    if user.trashed_at is not None:
+        return False
+    user.trashed_at = utcnow()
+    user.trashed_by = by
+    user.is_active = False
+    user.token_version = (user.token_version or 0) + 1
+    db.commit()
+    return True
+
+
+def restore(db: Session, user: User) -> bool:
+    """Take an account out of the trash, as it was. Returns whether it was there."""
+    if user.trashed_at is None:
+        return False
+    user.trashed_at = None
+    user.trashed_by = None
+    user.is_active = True
+    db.commit()
+    return True
 
 
 def erase_due(db: Session, now: datetime.datetime | None = None) -> int:
