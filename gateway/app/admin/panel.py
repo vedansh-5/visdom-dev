@@ -18,7 +18,7 @@ from urllib.parse import urlencode
 import wtforms
 from sqladmin import Admin, BaseView, ModelView, expose
 from sqladmin.authentication import AuthenticationBackend
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlalchemy.orm import joinedload
 from starlette.exceptions import HTTPException
 from starlette.requests import Request
@@ -1108,10 +1108,16 @@ class PlanMovesView(BaseView):
     applies to everyone on a plan. Doing that one row at a time is where
     mistakes happen, so it is one form with a count in front of it.
 
+    Below that is the list of accounts, for the group that is not "everyone on
+    a plan": search or filter, tick the ones that matter, and move them
+    together, whatever plans they start on.
+
     The narrower alternative is worth knowing about and is often the better
     answer: changing what a plan allows, on the plans page, reaches every
     account on it at once without moving anybody.
     """
+
+    PICK_LIMIT = 500
 
     name = "Plan moves"
     icon = "fa-solid fa-right-left"
@@ -1139,9 +1145,17 @@ class PlanMovesView(BaseView):
         if not self._allowed(request):
             return Response("Forbidden", status_code=403)
 
+        search = (request.query_params.get("q") or "").strip()
+        on_plan = (request.query_params.get("plan") or "").strip()
+
         if request.method == "POST":
-            kind, message = await self._move(request)
-            query = urlencode({"notice": message, "notice_kind": kind})
+            form = await request.form()
+            if form.get("intent") == "move_picked":
+                kind, message = self._move_picked(request, form)
+            else:
+                kind, message = await self._move(request)
+            kept = {key: value for key, value in (("q", search), ("plan", on_plan)) if value}
+            query = urlencode({**kept, "notice": message, "notice_kind": kind})
             return RedirectResponse(request.url.replace(query=query), status_code=303)
 
         db = SessionLocal()
@@ -1158,13 +1172,90 @@ class PlanMovesView(BaseView):
                 }
                 for plan in db.query(Plan).order_by(Plan.sort_order, Plan.id).all()
             ]
+            listed = db.query(User)
+            if search:
+                wanted = search.lower()
+                listed = listed.filter(
+                    or_(
+                        func.lower(User.email).contains(wanted, autoescape=True),
+                        func.lower(User.username).contains(wanted, autoescape=True),
+                    )
+                )
+            if on_plan:
+                listed = listed.filter(User.tier == on_plan)
+            matching = listed.count()
+            names = {plan["id"]: plan["name"] for plan in plans}
+            accounts = [
+                {
+                    "id": str(user.id),
+                    "email": user.email,
+                    "username": user.username,
+                    "plan": names.get(user.tier, user.tier or "none"),
+                    "joined": user.created_at.strftime("%Y-%m-%d") if user.created_at else "",
+                }
+                for user in listed.order_by(User.email).limit(self.PICK_LIMIT).all()
+            ]
         finally:
             db.close()
         return await self.templates.TemplateResponse(
             request,
             "sqladmin/plan_moves.html",
-            {"plans": plans, "movable": [plan for plan in plans if not plan["archived"]]},
+            {
+                "plans": plans,
+                "movable": [plan for plan in plans if not plan["archived"]],
+                "accounts": accounts,
+                "matching": matching,
+                "search": search,
+                "on_plan": on_plan,
+            },
         )
+
+    def _move_picked(self, request: Request, form):
+        """Put the ticked accounts onto one plan, whatever plans they were on.
+
+        Checked against the same rule as every other plan change, and recorded
+        per account, because the trail is read by asking what happened to one.
+        """
+        if not self._allowed(request):
+            return "error", "Your role cannot change plans."
+
+        target = str(form.get("to_plan") or "").strip()
+        picked = []
+        for raw in form.getlist("row_ids"):
+            try:
+                picked.append(uuid.UUID(str(raw)))
+            except ValueError:
+                continue
+        if not picked:
+            return "info", "No account was ticked, so nothing was moved."
+        if not target:
+            return "error", "Choose the plan to move the ticked accounts to."
+
+        db = SessionLocal()
+        try:
+            if not billing.assignable(db, target):
+                return "error", f"{target} is archived or does not exist, so nobody can be put on it."
+            accounts = db.query(User).filter(User.id.in_(picked)).all()
+            moved = [(str(user.id), user.tier) for user in accounts if user.tier != target]
+            for user in accounts:
+                user.tier = target
+            db.commit()
+            staying = len(accounts) - len(moved)
+        finally:
+            db.close()
+
+        for user_id, source in moved:
+            _record_action(
+                request, "update", "User", user_id,
+                {"tier": target, "moved_from": source, "moved_in_bulk": True},
+            )
+        if not moved:
+            return "info", f"Every ticked account was already on {target}."
+        count = len(moved)
+        message = f"Moved {count} account{'' if count == 1 else 's'} to {target}."
+        if staying:
+            message += f" {staying} {'was' if staying == 1 else 'were'} already on it."
+        return "success", message
 
     async def _move(self, request: Request):
         """Put every account on one plan onto another.

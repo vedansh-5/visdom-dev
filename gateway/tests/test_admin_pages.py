@@ -990,6 +990,141 @@ def test_moving_to_the_same_plan_changes_nothing(admin_client):
     assert "notice_kind=info" in done.headers["location"]
 
 
+def _pick(admin_client, to_plan, accounts, query=""):
+    form = {"intent": "move_picked", "to_plan": to_plan, "row_ids": [str(a.id) for a in accounts]}
+    return admin_client.post(f"/admin/plan-moves{query}", data=form, follow_redirects=False)
+
+
+def test_ticked_accounts_move_together_whatever_plan_they_were_on(admin_client):
+    from app.models import AdminAction, User
+
+    db = admin_client.staff_db
+    on_free = _account(db, email="picked-free@example.com")
+    on_enterprise = _account(db, email="picked-enterprise@example.com")
+    on_enterprise.tier = "enterprise"
+    already = _account(db, email="picked-already@example.com")
+    already.tier = "pro"
+    left_alone = _account(db, email="not-picked@example.com")
+    db.commit()
+
+    done = _pick(admin_client, "pro", [on_free, on_enterprise, already])
+    assert "notice_kind=success" in done.headers["location"]
+    assert "Moved+2+accounts+to+pro" in done.headers["location"]
+    assert "1+was+already+on+it" in done.headers["location"]
+
+    db.expire_all()
+    assert {db.get(User, a.id).tier for a in (on_free, on_enterprise, already)} == {"pro"}
+    assert db.get(User, left_alone.id).tier == "free"
+    moved_from = {
+        entry.row_id: entry.changes["moved_from"]
+        for entry in db.query(AdminAction).filter(AdminAction.model == "User")
+    }
+    assert moved_from == {str(on_free.id): "free", str(on_enterprise.id): "enterprise"}
+
+
+def test_the_account_list_can_be_searched_and_filtered_by_plan(admin_client):
+    db = admin_client.staff_db
+    _account(db, email="alpha.search@example.com")
+    paid = _account(db, email="beta.search@example.com")
+    paid.tier = "pro"
+    db.commit()
+
+    everyone = admin_client.get("/admin/plan-moves").text
+    assert "alpha.search@example.com" in everyone and "beta.search@example.com" in everyone
+
+    by_name = admin_client.get("/admin/plan-moves?q=ALPHA.search").text
+    assert "alpha.search@example.com" in by_name
+    assert "beta.search@example.com" not in by_name
+
+    by_plan = admin_client.get("/admin/plan-moves?plan=pro").text
+    assert "beta.search@example.com" in by_plan
+    assert "alpha.search@example.com" not in by_plan
+
+    nobody = admin_client.get("/admin/plan-moves?q=no-such-account").text
+    assert "No account matches that." in nobody
+
+
+def test_a_search_treats_percent_and_underscore_as_plain_text(admin_client):
+    db = admin_client.staff_db
+    _account(db, email="plain@example.com")
+
+    assert "plain@example.com" not in admin_client.get("/admin/plan-moves?q=%25").text
+    assert "plain@example.com" not in admin_client.get("/admin/plan-moves?q=pl_in").text
+
+
+def test_moving_with_nothing_ticked_changes_nothing(admin_client):
+    from app.models import AdminAction, User
+
+    db = admin_client.staff_db
+    user = _account(db, email="unticked@example.com")
+
+    done = _pick(admin_client, "pro", [])
+    assert "notice_kind=info" in done.headers["location"]
+
+    db.expire_all()
+    assert db.get(User, user.id).tier == "free"
+    assert db.query(AdminAction).count() == 0
+
+
+def test_ticked_accounts_cannot_go_onto_an_archived_plan(admin_client):
+    from app.models import Plan, User
+
+    db = admin_client.staff_db
+    user = _account(db, email="not-onto-retired@example.com")
+    db.add(
+        Plan(
+            id="retired",
+            name="Retired",
+            price=0,
+            sort_order=9,
+            is_public=False,
+            archived_at=utcnow(),
+            limits={"workspaces": 1, "members": 1, "api_keys": 1, "storage_mb": 1, "workspace_storage_mb": 1},
+            features=[],
+        )
+    )
+    db.commit()
+
+    done = _pick(admin_client, "retired", [user])
+    assert "notice_kind=error" in done.headers["location"]
+    db.expire_all()
+    assert db.get(User, user.id).tier == "free"
+
+
+def test_the_search_is_kept_after_a_move(admin_client):
+    db = admin_client.staff_db
+    user = _account(db, email="kept.filter@example.com")
+
+    done = _pick(admin_client, "pro", [user], query="?q=kept.filter&plan=free")
+    assert "q=kept.filter" in done.headers["location"]
+    assert "plan=free" in done.headers["location"]
+
+
+def test_support_cannot_move_ticked_accounts(admin_client):
+    from app.models import User
+
+    db = admin_client.staff_db
+    user = _account(db, email="support-cannot-pick@example.com")
+    db.add(
+        AdminUser(
+            id=uuid.uuid4(),
+            email="support-picks@example.com",
+            password_hash=get_password_hash("supportpassword"),
+            role="support",
+            is_active=True,
+        )
+    )
+    db.commit()
+    admin_client.post(
+        "/admin/login",
+        data={"username": "support-picks@example.com", "password": "supportpassword"},
+    )
+
+    assert _pick(admin_client, "pro", [user]).status_code == 403
+    db.expire_all()
+    assert db.get(User, user.id).tier == "free"
+
+
 def test_nobody_can_be_moved_onto_an_archived_plan(admin_client):
     from app.models import Plan, User
 
