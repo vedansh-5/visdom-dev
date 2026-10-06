@@ -34,9 +34,15 @@ def test_an_admin_cannot_change_a_staff_account():
 
 
 def test_support_reads_the_same_records_as_an_admin():
-    for model in ("User", "Workspace", "Membership", "APIKey", "AdminAction"):
+    for model in ("User", "Workspace", "Membership", "APIKey"):
         assert roles.can_see(roles.SUPPORT, model)
         assert roles.can_see(roles.ADMIN, model)
+
+
+def test_only_a_superadmin_reads_the_audit_trail():
+    assert roles.can_see(roles.SUPERADMIN, "AdminAction")
+    assert not roles.can_see(roles.ADMIN, "AdminAction")
+    assert not roles.can_see(roles.SUPPORT, "AdminAction")
 
 
 def test_setting_a_tier_is_an_entitlement_decision():
