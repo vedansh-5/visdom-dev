@@ -1050,21 +1050,31 @@ def test_support_cannot_reach_the_plan_moves_page(admin_client):
     assert db.get(User, user.id).tier == "free"
 
 
-def _plan_form(
-    plan_id="team",
-    limits='{"workspaces": 3, "members": 5, "api_keys": 4, "storage_mb": 2048, "workspace_storage_mb": 1024}',
-    **extra,
-):
+TEAM_LIMITS = {
+    "workspaces": 3,
+    "members": 5,
+    "api_keys": 4,
+    "storage_mb": 2048,
+    "workspace_storage_mb": 1024,
+}
+
+
+def _limit_boxes(limits):
+    """The plan form's limit inputs, an empty box standing for unlimited."""
+    return {f"limits-{key}": "" if value is None else str(value) for key, value in limits.items()}
+
+
+def _plan_form(plan_id="team", limits=None, **extra):
     form = {
         "id": plan_id,
         "name": "Team",
         "price": "12",
         "sort_order": "5",
         "is_public": "y",
-        "limits": limits,
         "features": '["3 workspaces"]',
         "retention_days": "30",
     }
+    form.update(_limit_boxes(TEAM_LIMITS if limits is None else limits))
     form.update(extra)
     return form
 
@@ -1077,14 +1087,51 @@ def test_a_superadmin_can_add_a_plan(admin_client):
 
     admin_client.staff_db.expire_all()
     plan = admin_client.staff_db.get(Plan, "team")
-    assert plan.limits == {
-        "workspaces": 3,
-        "members": 5,
-        "api_keys": 4,
-        "storage_mb": 2048,
-        "workspace_storage_mb": 1024,
-    }
+    assert plan.limits == TEAM_LIMITS
     assert plan.features == ["3 workspaces"]
+
+
+def test_an_empty_limit_box_means_unlimited(admin_client):
+    from app.models import Plan
+
+    limits = dict(TEAM_LIMITS, members=None, storage_mb=None)
+    made = admin_client.post(
+        "/admin/plan/create", data=_plan_form("roomy", limits=limits), follow_redirects=False
+    )
+    assert made.status_code in (302, 303), made.text
+
+    admin_client.staff_db.expire_all()
+    assert admin_client.staff_db.get(Plan, "roomy").limits == limits
+
+
+@pytest.mark.parametrize("typed", ["three", "-1", "1.5", "1e3"])
+def test_a_limit_that_is_not_a_whole_number_is_refused(admin_client, typed):
+    from app.models import Plan
+
+    form = _plan_form("typo")
+    form["limits-workspaces"] = typed
+    refused = admin_client.post("/admin/plan/create", data=form, follow_redirects=False)
+
+    assert refused.status_code not in (302, 303)
+    assert "Workspaces must be a whole number" in refused.text
+    assert 'class="ap-limits is-invalid"' in refused.text
+    assert f'value="{typed}"' in refused.text
+    admin_client.staff_db.expire_all()
+    assert admin_client.staff_db.get(Plan, "typo") is None
+
+
+def test_the_plan_form_shows_a_box_for_each_limit(admin_client):
+    from app import billing
+
+    page = admin_client.get("/admin/plan/edit/free").text
+
+    for key in billing.LIMIT_KEYS:
+        assert f'name="limits-{key}"' in page
+    assert 'name="limits-workspaces" value="1"' in page
+    assert 'name="limits"' not in page
+
+    unlimited = admin_client.get("/admin/plan/edit/enterprise").text
+    assert 'name="limits-workspaces" value=""' in unlimited
 
 
 def test_a_plan_with_a_missing_limit_is_refused(admin_client):
@@ -1092,7 +1139,7 @@ def test_a_plan_with_a_missing_limit_is_refused(admin_client):
 
     refused = admin_client.post(
         "/admin/plan/create",
-        data=_plan_form("gappy", limits='{"workspaces": 3, "members": 5}'),
+        data=_plan_form("gappy", limits={"workspaces": 3, "members": 5}),
         follow_redirects=False,
     )
     assert refused.status_code not in (302, 303)
@@ -1122,18 +1169,25 @@ def test_editing_a_plan_changes_its_limits_but_never_its_id(admin_client):
             "price": "29",
             "sort_order": "1",
             "is_public": "y",
-            "limits": (
-                '{"workspaces": 15, "members": null, "api_keys": 20, '
-                '"storage_mb": 10240, "workspace_storage_mb": 5120}'
-            ),
             "features": "[]",
             "retention_days": "90",
+            **_limit_boxes(
+                {
+                    "workspaces": 15,
+                    "members": None,
+                    "api_keys": 20,
+                    "storage_mb": 10240,
+                    "workspace_storage_mb": 5120,
+                }
+            ),
         },
         follow_redirects=False,
     )
     admin_client.staff_db.expire_all()
     assert admin_client.staff_db.get(Plan, "renamed") is None
-    assert admin_client.staff_db.get(Plan, "pro").limits["workspaces"] == 15
+    changed = admin_client.staff_db.get(Plan, "pro").limits
+    assert changed["workspaces"] == 15
+    assert changed["members"] is None
 
 
 def test_the_plan_dropdown_marks_hidden_and_archived_plans(admin_client):
