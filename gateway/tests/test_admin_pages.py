@@ -167,7 +167,79 @@ def test_the_audit_trail_still_renders_once_the_row_is_gone(admin_client):
 
     trail = admin_client.get("/admin/admin-action/list", follow_redirects=False)
     assert trail.status_code == 200
-    assert "long-gone (purged)" in trail.text
+    assert "Deleted workspace long-gone for good, from the trash." in trail.text
+
+
+def test_an_edit_records_only_what_changed_and_reads_as_a_sentence(admin_client):
+    from app.models import AdminAction
+
+    db = admin_client.staff_db
+    user = _account(db, email="audited-edit@example.com")
+
+    saved = admin_client.post(
+        f"/admin/user/edit/{user.id}", data=_user_form(user, tier="pro"), follow_redirects=False
+    )
+    assert saved.status_code in (302, 303), saved.text
+
+    entry = db.query(AdminAction).filter(AdminAction.row_id == str(user.id)).one()
+    assert entry.changes == {"tier": "pro", "was": {"tier": "free"}}
+    assert entry.admin_email == "staff@example.com"
+
+    trail = admin_client.get("/admin/admin-action/list").text
+    assert "Moved account audited-edit@example.com from the free plan to pro." in trail
+    assert "&#34;tier&#34;" not in trail and '"tier"' not in trail
+
+
+def test_an_edit_that_changes_nothing_is_not_recorded(admin_client):
+    from app.models import AdminAction
+
+    db = admin_client.staff_db
+    user = _account(db, email="untouched-edit@example.com")
+
+    admin_client.post(f"/admin/user/edit/{user.id}", data=_user_form(user), follow_redirects=False)
+
+    assert db.query(AdminAction).filter(AdminAction.row_id == str(user.id)).count() == 0
+
+
+def test_an_entry_with_no_staff_member_says_automatic(admin_client):
+    from app.models import AdminAction
+
+    db = admin_client.staff_db
+    db.add(
+        AdminAction(
+            id=uuid.uuid4(),
+            action="update",
+            model="APIKey",
+            row_id=str(uuid.uuid4()),
+            changes={"is_active": False, "revoked_from": "notice period ended"},
+        )
+    )
+    db.commit()
+
+    trail = admin_client.get("/admin/admin-action/list").text
+    assert "automatic" in trail
+    assert "(notice period ended)" in trail
+
+
+@pytest.mark.parametrize("role", ["admin", "support"])
+def test_only_a_superadmin_opens_the_audit_trail(admin_client, role):
+    db = admin_client.staff_db
+    db.add(
+        AdminUser(
+            id=uuid.uuid4(),
+            email=f"{role}-audit@example.com",
+            password_hash=get_password_hash("their-staff-password"),
+            role=role,
+            is_active=True,
+        )
+    )
+    db.commit()
+    admin_client.post(
+        "/admin/login", data={"username": f"{role}-audit@example.com", "password": "their-staff-password"}
+    )
+
+    assert admin_client.get("/admin/admin-action/list", follow_redirects=False).status_code == 403
+    assert "Audit trail" not in admin_client.get("/admin/").text
 
 
 def test_the_workspace_page_reports_the_work_a_workspace_caused(admin_client, monkeypatch):
