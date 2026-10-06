@@ -24,7 +24,7 @@ from starlette.exceptions import HTTPException
 from starlette.requests import Request
 from starlette.responses import RedirectResponse, Response
 
-from app import billing
+from app import account_deletion, billing
 from app import email as outbound
 from app.admin import activity, janitor, leftovers, roles
 from app.admin.audit import StaffAuditBackend
@@ -214,9 +214,11 @@ class UserAdmin(ChangeableView, model=User):
         User.username,
         User.tier,
         User.is_active,
+        User.trashed_at,
         User.created_at,
         User.last_login_at,
     ]
+    column_labels = {User.trashed_at: "In trash since"}
     column_searchable_list = [User.email, User.username]
     column_sortable_list = [
         User.email,
@@ -229,6 +231,7 @@ class UserAdmin(ChangeableView, model=User):
     column_formatters = {
         User.created_at: _to_the_minute("created_at"),
         User.last_login_at: _to_the_minute("last_login_at", "never"),
+        User.trashed_at: _to_the_minute("trashed_at"),
     }
     form_columns = [User.is_active, User.tier, User.password_hash]
     form_include_pk = True
@@ -284,6 +287,11 @@ class UserAdmin(ChangeableView, model=User):
         chosen = (data.get("password_hash") or "").strip()
         if not chosen:
             data.pop("password_hash", None)
+        if model.trashed_at is not None and data.get("is_active"):
+            raise HTTPException(
+                status_code=400,
+                detail="This account is in the trash. Restore it from the Account trash page.",
+            )
         await super().on_model_change(data, model, is_created, request)
         if chosen:
             data["password_hash"] = get_password_hash(chosen)
@@ -1309,6 +1317,183 @@ class PlanMovesView(BaseView):
         return "success", f"Moved {count} account{'' if count == 1 else 's'} from {source} to {target}."
 
 
+class AccountTrashView(BaseView):
+    """Putting accounts in the trash, and emptying it by hand.
+
+    Trashing removes nothing: the account is locked out and everything it owns
+    stays where it is, so restoring puts it back exactly. Deleting for good is
+    only offered from the trash, which makes it two deliberate steps, and the
+    trash never empties itself.
+    """
+
+    name = "Account trash"
+    icon = "fa-solid fa-user-slash"
+    category = "People"
+    category_icon = "fa-solid fa-users"
+
+    PICK_LIMIT = 500
+
+    def is_visible(self, request: Request) -> bool:
+        return self._allowed(request)
+
+    def is_accessible(self, request: Request) -> bool:
+        return self._allowed(request)
+
+    @staticmethod
+    def _allowed(request: Request) -> bool:
+        return roles.can_trash_accounts(request.session.get(ROLE_KEY))
+
+    @expose("/account-trash", methods=["GET", "POST"])
+    async def account_trash(self, request: Request):
+        if not self._allowed(request):
+            return Response("Forbidden", status_code=403)
+
+        search = (request.query_params.get("q") or "").strip()
+        if request.method == "POST":
+            form = await request.form()
+            kind, message = self._act(request, form)
+            kept = {"q": search} if search else {}
+            query = urlencode({**kept, "notice": message, "notice_kind": kind})
+            return RedirectResponse(request.url.replace(query=query), status_code=303)
+
+        db = SessionLocal()
+        try:
+            listed = db.query(User).filter(User.trashed_at.is_(None))
+            if search:
+                wanted = search.lower()
+                listed = listed.filter(
+                    or_(
+                        func.lower(User.email).contains(wanted, autoescape=True),
+                        func.lower(User.username).contains(wanted, autoescape=True),
+                    )
+                )
+            matching = listed.count()
+            accounts = [
+                {
+                    "id": str(user.id),
+                    "email": user.email,
+                    "username": user.username,
+                    "plan": user.tier or "none",
+                    "joined": user.created_at.strftime("%Y-%m-%d") if user.created_at else "",
+                    "last_seen": user.last_login_at.strftime("%Y-%m-%d") if user.last_login_at else "never",
+                }
+                for user in listed.order_by(User.email).limit(self.PICK_LIMIT).all()
+            ]
+            trashed = []
+            for user in db.query(User).filter(User.trashed_at.isnot(None)).order_by(User.trashed_at.desc()).all():
+                state = account_deletion.standing(db, user)
+                trashed.append(
+                    {
+                        "id": str(user.id),
+                        "email": user.email,
+                        "when": user.trashed_at.strftime("%Y-%m-%d %H:%M"),
+                        "by": user.trashed_by or "unknown",
+                        "goes_with": [ws.slug for ws in state["leaving_with"]],
+                        "blocked_by": [ws.slug for ws, _ in state["blockers"]],
+                    }
+                )
+        finally:
+            db.close()
+        return await self.templates.TemplateResponse(
+            request,
+            "sqladmin/account_trash.html",
+            {"accounts": accounts, "matching": matching, "search": search, "trashed": trashed},
+        )
+
+    def _act(self, request: Request, form):
+        intent = str(form.get("intent") or "")
+        picked = []
+        for raw in form.getlist("row_ids"):
+            try:
+                picked.append(uuid.UUID(str(raw)))
+            except ValueError:
+                continue
+        if not picked:
+            return "info", "No account was ticked, so nothing was changed."
+        if intent == "trash":
+            return self._trash(request, picked)
+        if intent == "restore":
+            return self._restore(request, picked)
+        if intent == "delete":
+            return self._delete(request, picked)
+        return "error", "Nothing was changed."
+
+    @staticmethod
+    def _counted(count: int) -> str:
+        return f"{count} account{'' if count == 1 else 's'}"
+
+    def _trash(self, request: Request, picked):
+        staff = request.session.get(EMAIL_KEY)
+        db = SessionLocal()
+        try:
+            moved = []
+            for user in db.query(User).filter(User.id.in_(picked)).all():
+                if account_deletion.trash(db, user, staff):
+                    moved.append((str(user.id), user.email))
+        finally:
+            db.close()
+        for user_id, email in moved:
+            _record_action(request, "update", "User", user_id, {"trashed": True, "email": email})
+        if not moved:
+            return "info", "Those accounts were already in the trash."
+        return "success", f"Moved {self._counted(len(moved))} to the trash. Nothing was deleted."
+
+    def _restore(self, request: Request, picked):
+        db = SessionLocal()
+        try:
+            back = []
+            for user in db.query(User).filter(User.id.in_(picked)).all():
+                if account_deletion.restore(db, user):
+                    back.append((str(user.id), user.email))
+        finally:
+            db.close()
+        for user_id, email in back:
+            _record_action(request, "update", "User", user_id, {"trashed": False, "email": email})
+        if not back:
+            return "info", "None of those accounts was in the trash."
+        return "success", f"Restored {self._counted(len(back))}. They can sign in again."
+
+    def _delete(self, request: Request, picked):
+        """Remove accounts that are already in the trash, one at a time.
+
+        One account being refused does not stop the rest, and the message names
+        each one that stayed and why.
+        """
+        staff_id = request.session.get(SESSION_KEY)
+        staff_email = request.session.get(EMAIL_KEY)
+        gone, stayed = 0, []
+        db = SessionLocal()
+        try:
+            ids = [
+                row[0]
+                for row in db.query(User.id).filter(User.id.in_(picked), User.trashed_at.isnot(None)).all()
+            ]
+            for user_id in ids:
+                user = db.get(User, user_id)
+                if user is None:
+                    continue
+                email = user.email
+                try:
+                    account_deletion.remove(
+                        db, user, "deleted from the trash by staff", staff_id, staff_email
+                    )
+                    gone += 1
+                except account_deletion.StillNeeded as exc:
+                    db.rollback()
+                    stayed.append(f"{email} still owns {exc}, which other people use")
+                except activity.FilesKept:
+                    db.rollback()
+                    stayed.append(f"{email}: its plot files could not be removed, try again")
+        finally:
+            db.close()
+        if not ids:
+            return "error", "Only accounts in the trash can be deleted for good."
+        message = f"Deleted {self._counted(gone)} for good." if gone else "Nothing was deleted."
+        if stayed:
+            message += " Kept: " + "; ".join(stayed) + "."
+        return ("success" if gone and not stayed else "info" if gone else "error"), message
+
+
 class JanitorView(BaseView):
     """Leftovers worth a look, on one page.
 
@@ -1905,6 +2090,7 @@ def mount_admin(app, secret_key, base_url="/admin"):
 
     for view in VIEWS:
         admin.add_view(view)
+    admin.add_view(AccountTrashView)
     admin.add_view(PlanMovesView)
     admin.add_view(JanitorView)
     admin.add_view(UsageView)

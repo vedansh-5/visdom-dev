@@ -124,5 +124,14 @@ def can_sweep(role):
     return role in _SWEEPERS
 
 
+def can_trash_accounts(role):
+    """Whether this role may put accounts in the trash, restore them, or delete them.
+
+    One role only. Trashing locks a person out and deleting cannot be undone,
+    so neither is a day to day support action.
+    """
+    return role == SUPERADMIN
+
+
 def is_valid(role):
     return role in ROLES

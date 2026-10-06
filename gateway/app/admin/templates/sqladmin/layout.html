@@ -915,7 +915,7 @@
       const all = event.target.closest("[data-select-all]");
       if (!all) return;
       const selector = `input[name="${CSS.escape(all.dataset.selectAll)}"]`;
-      for (const box of document.querySelectorAll(selector)) box.checked = all.checked;
+      for (const box of (all.closest("form") || document).querySelectorAll(selector)) box.checked = all.checked;
     });
 
     const showFlashes = () => {
