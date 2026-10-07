@@ -934,6 +934,29 @@
       if (event.target.matches('input[name="row_ids"]')) countTicked();
     });
 
+    const ROW_BOX = 'td:first-child input[type="checkbox"]';
+    let lastTicked = null;
+
+    document.addEventListener("mousedown", (event) => {
+      if (event.shiftKey && event.target.closest(`tbody ${ROW_BOX}`)) event.preventDefault();
+    });
+
+    document.addEventListener("click", (event) => {
+      const box = event.target.closest(`tbody ${ROW_BOX}`);
+      if (!box) return;
+      const body = box.closest("tbody");
+      if (event.shiftKey && lastTicked && lastTicked !== box && lastTicked.closest("tbody") === body) {
+        const boxes = [...body.querySelectorAll(ROW_BOX)];
+        const from = boxes.indexOf(lastTicked);
+        const to = boxes.indexOf(box);
+        for (const other of boxes.slice(Math.min(from, to), Math.max(from, to) + 1)) {
+          if (!other.closest("tr").hidden) other.checked = box.checked;
+        }
+        countTicked();
+      }
+      lastTicked = box;
+    });
+
     let liveSearchTimer = null;
     document.addEventListener("input", (event) => {
       const field = event.target.closest("[data-live-filter]");
