@@ -164,7 +164,14 @@ def create_workspace(
     refuse_if_at_limit(db, current_user, "workspaces")
     workspace = Workspace(name=workspace_in.name, slug=workspace_in.slug, created_by=current_user.id)
     db.add(workspace)
-    db.flush()
+    try:
+        db.flush()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="A workspace with this slug already exists.",
+        ) from None
 
     membership = Membership(user_id=current_user.id, workspace_id=workspace.id, role="admin")
     db.add(membership)
