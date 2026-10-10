@@ -8,8 +8,10 @@
 
 import asyncio
 import base64
+import functools
 import logging
 import os
+import secrets
 import time
 import uuid
 from datetime import datetime, timezone
@@ -55,6 +57,16 @@ MIN_SET_PASSWORD = 12
 DANGEROUS_ENVIRONMENTS = ("prod", "production", "live")
 
 
+@functools.lru_cache(maxsize=1)
+def _placeholder_hash():
+    """A hash no password matches, checked when there is no account to check.
+
+    Refusing an unknown email then costs the same as refusing a wrong password,
+    so the time a sign-in takes does not say which emails are staff accounts.
+    """
+    return get_password_hash(secrets.token_urlsafe(32))
+
+
 class StaffAuth(AuthenticationBackend):
     def __init__(self, secret_key, path="/admin"):
         super().__init__(secret_key=secret_key, https_only=settings.COOKIE_SECURE, path=path)
@@ -66,10 +78,9 @@ class StaffAuth(AuthenticationBackend):
         db = SessionLocal()
         try:
             admin = db.query(AdminUser).filter(AdminUser.email == email).first()
-            if admin is None or not admin.is_active:
-                logging.info("admin login refused for %s", email)
-                return False
-            if not verify_password(password, admin.password_hash):
+            known = admin is not None and admin.is_active
+            matches = verify_password(password, admin.password_hash if known else _placeholder_hash())
+            if not (known and matches):
                 logging.info("admin login refused for %s", email)
                 return False
             admin.last_login_at = utcnow()
