@@ -88,7 +88,11 @@ def _ask(address: str, timeout: float) -> tuple[bool, list[dict]]:
     except (urllib.error.URLError, OSError, ValueError) as exc:
         logging.warning("could not read activity from %s: %s", address, exc)
         return False, []
-    return True, payload.get("workspaces", [])
+    rows = payload.get("workspaces") if isinstance(payload, dict) else None
+    if not isinstance(rows, list):
+        logging.warning("activity from %s was not in the expected shape", address)
+        return False, []
+    return True, [row for row in rows if isinstance(row, dict)]
 
 
 _CACHE_TTL = 2.0
