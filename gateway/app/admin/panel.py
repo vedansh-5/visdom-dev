@@ -352,7 +352,7 @@ def _workspace_activity(model, name):
     someone is connected to the workspace right now, which only the visdom
     instances know.
     """
-    entry = activity.cached_activity().get(str(model.id))
+    entry = activity.known_activity().get(str(model.id))
     if entry is None:
         return "idle"
     viewers, writers = entry.get("viewers", 0), entry.get("writers", 0)
@@ -368,7 +368,7 @@ def _workspace_activity(model, name):
 
 def _workspace_last_active(model, name):
     """Render how long ago the workspace was last written to."""
-    snapshot = activity.cached_snapshot()
+    snapshot = activity.known_snapshot()
     entry = snapshot["workspaces"].get(str(model.id))
     last = entry.get("last_active_at") if entry else None
     if not last:
@@ -468,7 +468,7 @@ def _workspace_size(model, name):
     without doing anything obviously wrong, and this is the only place that
     would show it before the disk filled.
     """
-    snapshot = activity.cached_snapshot()
+    snapshot = activity.known_snapshot()
     entry = snapshot["workspaces"].get(str(model.id))
     size = entry.get("bytes") if entry else None
     if size is None:
@@ -499,7 +499,7 @@ def _workspace_traffic(model, name):
     that looks like a lifetime total but silently is not would be worse than no
     number.
     """
-    entry = activity.cached_activity().get(str(model.id)) or {}
+    entry = activity.known_activity().get(str(model.id)) or {}
     writes = entry.get("writes")
     pushes = entry.get("broadcasts")
     if writes is None and pushes is None:
@@ -643,6 +643,14 @@ class WorkspaceAdmin(ChangeableView, model=Workspace):
         "keys": _key_lines,
         "links": _link_lines,
     }
+
+    async def list(self, request: Request):
+        await activity.refresh_activity()
+        return await super().list(request)
+
+    async def get_object_for_details(self, request: Request):
+        await activity.refresh_activity()
+        return await super().get_object_for_details(request)
 
 
 def _other_active_admins(db, membership):

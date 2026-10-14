@@ -15,12 +15,14 @@ them. Instances are asked directly over the internal network rather than through
 the proxy, which would hash the request onto a single one.
 """
 
+import asyncio
 import concurrent.futures
 import json
 import logging
 import re
 import socket
 import ssl
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -97,6 +99,7 @@ def _ask(address: str, timeout: float) -> tuple[bool, list[dict]]:
 
 _CACHE_TTL = 2.0
 _cache: dict = {"at": 0.0, "value": {"answered": False, "workspaces": {}}}
+_cache_lock = threading.Lock()
 
 
 def cached_snapshot() -> dict:
@@ -106,18 +109,33 @@ def cached_snapshot() -> dict:
     this a fifty row page would fan out fifty times. The window is short enough
     that a page still shows what is happening now.
     """
-    now = time.monotonic()
-    if now - _cache["at"] < _CACHE_TTL:
-        return _cache["value"]
-    value = activity_snapshot()
-    _cache["at"] = now
-    _cache["value"] = value
-    return value
+    with _cache_lock:
+        if time.monotonic() - _cache["at"] < _CACHE_TTL:
+            return _cache["value"]
+        value = activity_snapshot()
+        _cache["at"] = time.monotonic()
+        _cache["value"] = value
+        return value
 
 
 def cached_activity() -> dict[str, dict]:
     """Just the per-workspace part of the cached snapshot."""
     return cached_snapshot()["workspaces"]
+
+
+async def refresh_activity() -> None:
+    """Fill the cache from a worker thread so a slow instance does not hold up other requests."""
+    await asyncio.to_thread(cached_activity)
+
+
+def known_snapshot() -> dict:
+    """The last snapshot fetched, without asking the instances again."""
+    return _cache["value"]
+
+
+def known_activity() -> dict[str, dict]:
+    """The last answer fetched, without asking the instances again."""
+    return _cache["value"]["workspaces"]
 
 
 def _combine(merged: dict[str, dict], workspace_id: str, entry: dict) -> None:
