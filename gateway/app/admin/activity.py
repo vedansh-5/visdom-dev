@@ -19,6 +19,7 @@ import asyncio
 import concurrent.futures
 import json
 import logging
+import os
 import re
 import socket
 import ssl
@@ -43,15 +44,60 @@ def instance_addresses() -> list[str]:
     return _SERVER_PATTERN.findall(settings.VISDOM_SERVERS or "")
 
 
+_MAX_BYTES = 4 * 1024 * 1024
+
+
+def _read_within(response, deadline: float) -> bytes:
+    body = bytearray()
+    while True:
+        if time.monotonic() > deadline:
+            raise TimeoutError("answer took too long")
+        chunk = response.read(65536)
+        if not chunk:
+            return bytes(body)
+        body += chunk
+        if len(body) > _MAX_BYTES:
+            raise ValueError("answer too large")
+
+
+ACTIVITY_PATH = "/vis/_activity"
+
+
+_reported: set[str] = set()
+
+
+def internal_setup_problem() -> str | None:
+    if not settings.VISDOM_INTERNAL_READ_KEY:
+        return "VISDOM_INTERNAL_READ_KEY is not set"
+    if not settings.VISDOM_INTERNAL_CA:
+        return "VISDOM_INTERNAL_CA is not set"
+    if not os.path.isfile(settings.VISDOM_INTERNAL_CA) or not os.access(settings.VISDOM_INTERNAL_CA, os.R_OK):
+        return "VISDOM_INTERNAL_CA cannot be read"
+    return None
+
+
+def _setup_is_complete() -> bool:
+    problem = internal_setup_problem()
+    if problem is None:
+        return True
+    if problem not in _reported:
+        _reported.add(problem)
+        logging.error(
+            "not calling the visdom instances: %s (VISDOM_INTERNAL_CA is %r)",
+            problem,
+            settings.VISDOM_INTERNAL_CA,
+        )
+    return False
+
+
 def internal_url(address: str, path: str) -> str:
     host = address.rsplit(":", 1)[0]
     return f"https://{host}:{settings.VISDOM_INTERNAL_PORT}{path}"
 
 
 def internal_tls() -> ssl.SSLContext:
-    context = ssl.create_default_context(cafile=settings.VISDOM_INTERNAL_CA or None)
-    if settings.VISDOM_INTERNAL_CA:
-        context.check_hostname = False
+    context = ssl.create_default_context(cafile=settings.VISDOM_INTERNAL_CA)
+    context.check_hostname = False
     return context
 
 
@@ -64,6 +110,8 @@ def internal_request(address: str, path: str, key: str, body: bytes | None = Non
 
 
 def certificate_days_left(address: str, timeout: float) -> float | None:
+    if not _setup_is_complete():
+        return None
     host = address.rsplit(":", 1)[0]
     try:
         with socket.create_connection((host, settings.VISDOM_INTERNAL_PORT), timeout=timeout) as raw:
@@ -83,10 +131,16 @@ def _ask(address: str, timeout: float) -> tuple[bool, list[dict]]:
     instance that does not answer is saying nothing at all. A page that cannot
     tell those apart has to call both of them unknown.
     """
-    request = internal_request(address, "/vis/_activity", settings.VISDOM_INTERNAL_READ_KEY)
+    if not _setup_is_complete():
+        return False, []
+    request = urllib.request.Request(
+        internal_url(address, ACTIVITY_PATH),
+        headers=signed_headers(settings.VISDOM_INTERNAL_READ_KEY, "GET", ACTIVITY_PATH),
+    )
+    deadline = time.monotonic() + timeout
     try:
         with urllib.request.urlopen(request, timeout=timeout, context=internal_tls()) as response:
-            payload = json.loads(response.read() or b"{}")
+            payload = json.loads(_read_within(response, deadline) or b"{}")
     except (urllib.error.URLError, OSError, ValueError) as exc:
         logging.warning("could not read activity from %s: %s", address, exc)
         return False, []
@@ -138,6 +192,48 @@ def known_activity() -> dict[str, dict]:
     return _cache["value"]["workspaces"]
 
 
+_OPTIONAL_COUNTS = ("writes", "broadcasts", "broadcast_bytes", "active_hour", "active_minutes_mask")
+
+
+def _is_count(value) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def _is_number(value) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def _usable(entry: dict) -> bool:
+    if not isinstance(entry.get("workspace_id"), str) or not entry["workspace_id"]:
+        return False
+    if not all(_is_count(entry.get(key, 0)) for key in ("viewers", "writers")):
+        return False
+    if not all(entry.get(key) is None or _is_count(entry[key]) for key in _OPTIONAL_COUNTS):
+        return False
+    return all(entry.get(key) is None or _is_number(entry[key]) for key in ("last_active_at", "bytes"))
+
+
+def _union_active_minutes(current: dict, entry: dict) -> None:
+    """Combine two instances' active-minute masks for the same workspace.
+
+    A union rather than a sum: three instances that each served a write in the
+    same minute did one minute of work between them. Masks belong to an hour, so
+    only answers about the same hour combine, and a later hour replaces an
+    earlier one outright rather than folding two hours into one number.
+    """
+    mine_hour, theirs_hour = current.get("active_hour"), entry.get("active_hour")
+    if theirs_hour is None:
+        return
+    if mine_hour is None or theirs_hour > mine_hour:
+        current["active_hour"] = theirs_hour
+        current["active_minutes_mask"] = entry.get("active_minutes_mask") or 0
+        return
+    if theirs_hour == mine_hour:
+        current["active_minutes_mask"] = (current.get("active_minutes_mask") or 0) | (
+            entry.get("active_minutes_mask") or 0
+        )
+
+
 def _combine(merged: dict[str, dict], workspace_id: str, entry: dict) -> None:
     """Fold one instance's answer for a workspace into the running total.
 
@@ -175,27 +271,6 @@ def _combine(merged: dict[str, dict], workspace_id: str, entry: dict) -> None:
             current[key] = theirs
 
 
-def _union_active_minutes(current: dict, entry: dict) -> None:
-    """Combine two instances' active-minute masks for the same workspace.
-
-    A union rather than a sum: three instances that each served a write in the
-    same minute did one minute of work between them. Masks belong to an hour, so
-    only answers about the same hour combine, and a later hour replaces an
-    earlier one outright rather than folding two hours into one number.
-    """
-    mine_hour, theirs_hour = current.get("active_hour"), entry.get("active_hour")
-    if theirs_hour is None:
-        return
-    if mine_hour is None or theirs_hour > mine_hour:
-        current["active_hour"] = theirs_hour
-        current["active_minutes_mask"] = entry.get("active_minutes_mask") or 0
-        return
-    if theirs_hour == mine_hour:
-        current["active_minutes_mask"] = (current.get("active_minutes_mask") or 0) | (
-            entry.get("active_minutes_mask") or 0
-        )
-
-
 def activity_snapshot(timeout: float | None = None) -> dict:
     """What the instances collectively know, and whether any of them answered.
 
@@ -219,7 +294,7 @@ def activity_snapshot(timeout: float | None = None) -> dict:
             answered = answered or ok
             for entry in entries:
                 workspace_id = entry.get("workspace_id")
-                if workspace_id:
+                if workspace_id and _usable(entry):
                     _combine(merged, workspace_id, entry)
     return {"answered": answered, "workspaces": merged}
 
@@ -238,10 +313,7 @@ def activity_per_instance(timeout: float | None = None) -> list[tuple]:
         timeout = settings.VISDOM_ACTIVITY_TIMEOUT
     with concurrent.futures.ThreadPoolExecutor(max_workers=len(addresses)) as pool:
         answers = list(pool.map(lambda a: _ask(a, timeout), addresses))
-    return [
-        (address, ok, entries)
-        for address, (ok, entries) in zip(addresses, answers, strict=True)
-    ]
+    return [(address, ok, entries) for address, (ok, entries) in zip(addresses, answers, strict=True)]
 
 
 def activity_by_workspace(timeout: float | None = None) -> dict[str, dict]:
@@ -282,6 +354,8 @@ def evict_workspace(slug: str, reason: str | None = None, timeout: float | None 
 
 def _tell(address: str, body: bytes, timeout: float) -> int:
     """One instance's answer to an eviction, or zero when it did not give one."""
+    if not _setup_is_complete():
+        return 0
     request = internal_request(address, "/vis/_evict", settings.VISDOM_INTERNAL_ADMIN_KEY, body)
     try:
         with urllib.request.urlopen(request, timeout=timeout, context=internal_tls()) as response:
@@ -330,6 +404,8 @@ def drop_workspace(workspace_id, timeout: float | None = None) -> dict:
 
 
 def _drop_on(address: str, body: bytes, timeout: float) -> dict | None:
+    if not _setup_is_complete():
+        return None
     request = internal_request(address, "/vis/_drop", settings.VISDOM_INTERNAL_ADMIN_KEY, body)
     try:
         with urllib.request.urlopen(request, timeout=timeout, context=internal_tls()) as response:
