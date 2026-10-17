@@ -39,6 +39,10 @@ class Settings(BaseSettings):
     VISDOM_SERVERS: str = ""
     ADMIN_ENVIRONMENT: str = ""
     VISDOM_ACTIVITY_TIMEOUT: float = 1.0
+    VISDOM_INTERNAL_PORT: int = 8098
+    VISDOM_INTERNAL_READ_KEY: str = ""
+    VISDOM_INTERNAL_ADMIN_KEY: str = ""
+    VISDOM_INTERNAL_CA: str = ""
     USAGE_SAMPLE_SECONDS: int = 60
     RETENTION_SWEEP_HOURS: int = 24
     RETENTION_ENFORCE: bool = False
