@@ -310,7 +310,8 @@ class UserAdmin(ChangeableView, model=User):
         keeps it, so saving that account for an unrelated reason, such as
         suspending it, must not be refused for a plan nobody is changing.
         """
-        chosen = (data.get("password_hash") or "").strip()
+        submitted = data.get("password_hash") or ""
+        chosen = submitted if submitted.strip() else ""
         if not chosen:
             data.pop("password_hash", None)
         if model.trashed_at is not None and data.get("is_active"):
