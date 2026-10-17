@@ -32,7 +32,7 @@ import urllib.request
 
 from sqlalchemy.orm import Session
 
-from app.admin.activity import instance_addresses
+from app.admin.activity import instance_addresses, internal_request, internal_tls
 from app.config import settings
 from app.models import Plan, User, Workspace, utcnow
 
@@ -83,19 +83,16 @@ def sweepable(db: Session) -> list[Workspace]:
 
 def ask_instance(address: str, workspace_id, days, dry_run: bool, timeout: float) -> dict | None:
     """One instance's answer about one workspace, or None if it did not give one."""
-    request = urllib.request.Request(
-        f"http://{address}/vis/_retire",
-        data=json.dumps(
-            {
-                "workspace_id": str(workspace_id),
-                "older_than_days": days,
-                "dry_run": dry_run,
-            }
-        ).encode(),
-        headers={"Content-Type": "application/json"},
-    )
+    body = json.dumps(
+        {
+            "workspace_id": str(workspace_id),
+            "older_than_days": days,
+            "dry_run": dry_run,
+        }
+    ).encode()
+    request = internal_request(address, "/vis/_retire", settings.VISDOM_INTERNAL_ADMIN_KEY, body)
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
+        with urllib.request.urlopen(request, timeout=timeout, context=internal_tls()) as response:
             return json.loads(response.read() or b"{}")
     except (urllib.error.URLError, OSError, ValueError) as exc:
         logger.warning("could not reach %s about %s: %s", address, workspace_id, exc)
