@@ -47,6 +47,9 @@ class Settings(BaseSettings):
     RETENTION_WARN_DAYS: int = 3
     ACCOUNT_DELETION_HOURS: int = 6
     KEY_REVOKE_HOURS: int = 24
+    STRIPE_SECRET_KEY: str = ""
+    STRIPE_PUBLISHABLE_KEY: str = ""
+    STRIPE_WEBHOOK_SECRET: str = ""
 
     model_config = SettingsConfigDict(env_file=".env")
 

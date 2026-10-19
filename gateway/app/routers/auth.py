@@ -11,7 +11,7 @@ from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
-from app import account_deletion, password_reset
+from app import account_deletion, password_reset, payments
 from app import email as outbound
 from app.admin.activity import evict_workspace
 from app.config import settings
@@ -429,7 +429,13 @@ def request_account_deletion(
             detail=f"Put someone else in charge of {names} first.",
         )
 
-    delete_after = account_deletion.request(db, current_user)
+    try:
+        delete_after = account_deletion.request(db, current_user)
+    except (payments.PaymentsDown, payments.PaymentsOff) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Your paid plan could not be stopped, so nothing was changed. Try again shortly.",
+        ) from exc
     for ws in preview["leaving_with"]:
         evict_workspace(ws.slug, "this account is being deleted")
 

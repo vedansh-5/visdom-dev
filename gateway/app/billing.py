@@ -107,6 +107,7 @@ _NO_PLAN = {
     "limits": dict.fromkeys(LIMIT_KEYS, 0),
     "retention_days": 0,
     "features": [],
+    "stripe_price_id": None,
 }
 
 
@@ -166,6 +167,7 @@ def _as_dict(plan: Plan) -> dict:
         "limits": {key: (plan.limits or {}).get(key) for key in LIMIT_KEYS},
         "retention_days": plan.retention_days,
         "features": list(plan.features or []),
+        "stripe_price_id": plan.stripe_price_id,
     }
 
 
