@@ -192,6 +192,7 @@ def test_checkout_makes_one_customer_and_an_embedded_session(client, make_user, 
     assert created["customer"] == "cus_test_1"
     assert created["client_reference_id"] == user["id"]
     assert created["line_items"] == [{"price": "price_pro", "quantity": 1}]
+    assert created["adaptive_pricing"] == {"enabled": False}
     assert created["return_url"].endswith("/?tab=billing&checkout={CHECKOUT_SESSION_ID}")
 
 

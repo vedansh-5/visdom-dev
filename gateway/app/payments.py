@@ -127,6 +127,7 @@ def start_checkout(db: Session, user: User, plan: Plan) -> dict:
                 "customer": customer,
                 "client_reference_id": str(user.id),
                 "line_items": [{"price": plan.stripe_price_id, "quantity": 1}],
+                "adaptive_pricing": {"enabled": False},
                 "metadata": tags,
                 "subscription_data": {"metadata": tags},
                 "redirect_on_completion": "if_required",
