@@ -56,6 +56,9 @@ DANGEROUS_ENVIRONMENTS = ("prod", "production", "live")
 
 
 class StaffAuth(AuthenticationBackend):
+    def __init__(self, secret_key, path="/admin"):
+        super().__init__(secret_key=secret_key, https_only=settings.COOKIE_SECURE, path=path)
+
     async def login(self, request: Request) -> bool:
         form = await request.form()
         email = (form.get("username") or "").strip().lower()
@@ -2188,7 +2191,7 @@ def mount_admin(app, secret_key, base_url="/admin"):
         title="Visdom Dev staff",
         favicon_url=_favicon_data_uri(),
         templates_dir=os.path.join(os.path.dirname(__file__), "templates"),
-        authentication_backend=StaffAuth(secret_key=secret_key),
+        authentication_backend=StaffAuth(secret_key=secret_key, path=base_url),
         audit_backend=StaffAuditBackend(SessionLocal, SESSION_KEY, EMAIL_KEY),
     )
     admin.templates.env.globals["overview_cards"] = overview_cards
