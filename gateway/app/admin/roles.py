@@ -83,6 +83,7 @@ _EDITABLE_FIELDS = {
             "limits",
             "features",
             "retention_days",
+            "stripe_price_id",
         },
     ),
 }

@@ -24,7 +24,7 @@ from starlette.exceptions import HTTPException
 from starlette.requests import Request
 from starlette.responses import RedirectResponse, Response
 
-from app import account_deletion, billing
+from app import account_deletion, billing, payments
 from app import email as outbound
 from app.admin import activity, janitor, leftovers, permissions, roles, wording
 from app.admin.audit import StaffAuditBackend, remember
@@ -886,6 +886,7 @@ class PlanAdmin(RoleScopedView, model=Plan):
         Plan.limits,
         Plan.features,
         Plan.retention_days,
+        Plan.stripe_price_id,
     ]
     form_create_rules = [
         "id",
@@ -896,6 +897,7 @@ class PlanAdmin(RoleScopedView, model=Plan):
         "limits",
         "features",
         "retention_days",
+        "stripe_price_id",
     ]
     form_edit_rules = [
         "name",
@@ -906,6 +908,7 @@ class PlanAdmin(RoleScopedView, model=Plan):
         "limits",
         "features",
         "retention_days",
+        "stripe_price_id",
     ]
     form_overrides = {"limits": LimitsField, "features": FeatureLines}
     form_args = {
@@ -933,6 +936,10 @@ class PlanAdmin(RoleScopedView, model=Plan):
             "render_kw": {"rows": 6},
         },
         "retention_days": {"description": "Leave empty for unlimited."},
+        "stripe_price_id": {
+            "label": "Stripe price",
+            "description": "The monthly Stripe price, starting price_. Empty means it cannot be bought online.",
+        },
     }
 
     async def check_can_create(self, request: Request) -> bool:
@@ -990,6 +997,23 @@ class PlanAdmin(RoleScopedView, model=Plan):
             value = data.get(key)
             if value is not None and value < 0:
                 raise HTTPException(status_code=400, detail=f"{key} cannot be negative.")
+        if "stripe_price_id" in data:
+            price_id = (data.get("stripe_price_id") or "").strip() or None
+            if price_id is not None and not payments.PRICE_ID.match(price_id):
+                raise HTTPException(status_code=400, detail="A Stripe price starts with price_.")
+            if price_id is not None:
+                db = SessionLocal()
+                try:
+                    taken = (
+                        db.query(Plan.id)
+                        .filter(Plan.stripe_price_id == price_id, Plan.id != (model.id if model else None))
+                        .first()
+                    )
+                finally:
+                    db.close()
+                if taken:
+                    raise HTTPException(status_code=400, detail=f"Plan {taken[0]} already uses that price.")
+            data["stripe_price_id"] = price_id
 
 
 class AdminUserAdmin(RoleScopedView, model=AdminUser):
@@ -1502,6 +1526,9 @@ class AccountTrashView(BaseView):
                 except activity.FilesKept:
                     db.rollback()
                     stayed.append(f"{email}: its plot files could not be removed, try again")
+                except (payments.PaymentsDown, payments.PaymentsOff):
+                    db.rollback()
+                    stayed.append(f"{email}: its paid plan could not be cancelled, try again")
         finally:
             db.close()
         if not ids:
