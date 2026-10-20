@@ -11,6 +11,7 @@ import re
 import uuid
 
 import stripe
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.billing import DEFAULT_TIER
@@ -202,20 +203,34 @@ def record(db: Session, found: dict) -> Subscription | None:
     if price and plan is None:
         logging.warning("subscription %s is for price %s, which no plan uses", found.get("id"), price)
 
-    row = db.get(Subscription, found["id"])
-    if row is None:
-        row = Subscription(id=found["id"], user_id=user.id)
-        db.add(row)
     period_end = _moment(first.get("current_period_end") or found.get("current_period_end"))
-    row.plan_id = plan.id if plan else None
-    row.price_id = price
-    row.status = found.get("status") or "incomplete"
-    row.current_period_end = period_end
-    row.ends_at = _moment(found.get("cancel_at")) or (period_end if found.get("cancel_at_period_end") else None)
-    row.updated_at = utcnow()
-    db.flush()
+    fields = {
+        "plan_id": plan.id if plan else None,
+        "price_id": price,
+        "status": found.get("status") or "incomplete",
+        "current_period_end": period_end,
+        "ends_at": _moment(found.get("cancel_at")) or (period_end if found.get("cancel_at_period_end") else None),
+        "updated_at": utcnow(),
+    }
+    row = _write(db, found["id"], user, fields)
     settle_tier(db, user)
     db.commit()
+    return row
+
+
+def _write(db: Session, subscription_id: str, user: User, fields: dict) -> Subscription:
+    row = db.get(Subscription, subscription_id, with_for_update=True)
+    if row is None:
+        try:
+            with db.begin_nested():
+                row = Subscription(id=subscription_id, user_id=user.id, **fields)
+                db.add(row)
+            return row
+        except IntegrityError:
+            row = db.get(Subscription, subscription_id, with_for_update=True, populate_existing=True)
+    for name, value in fields.items():
+        setattr(row, name, value)
+    db.flush()
     return row
 
 

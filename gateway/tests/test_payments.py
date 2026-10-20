@@ -6,6 +6,7 @@ import time
 
 import pytest
 import stripe
+from sqlalchemy.orm import Session
 
 from app import account_deletion, payments
 from app.config import settings
@@ -221,6 +222,30 @@ def test_a_paid_subscription_moves_the_account_onto_its_plan(client, make_user, 
     assert shown["billing"]["renews_at"].startswith("2030-01-01")
     assert shown["billing"]["ends_at"] is None
     assert shown["billing"]["can_manage"] is True
+
+
+def test_a_subscription_another_request_wrote_meanwhile_is_updated(client, make_user, fake, db_session, monkeypatch):
+    user = make_user()
+    _paying(client, db_session, fake, user)
+    fake.subscriptions["sub_1"] = _subscription(status="past_due")
+    real_get = Session.get
+    missed = []
+
+    def late_get(self, entity, ident, **kwargs):
+        if entity is Subscription and not missed:
+            missed.append(ident)
+            return None
+        return real_get(self, entity, ident, **kwargs)
+
+    monkeypatch.setattr(Session, "get", late_get)
+    assert _send(client, "customer.subscription.updated", {"id": "sub_1"}).status_code == 200
+    monkeypatch.undo()
+
+    assert missed == ["sub_1"]
+    account = _account(db_session, user)
+    rows = db_session.query(Subscription).filter(Subscription.user_id == account.id).all()
+    assert [(row.id, row.status) for row in rows] == [("sub_1", "past_due")]
+    assert account.tier == "pro"
 
 
 def test_the_webhook_reads_the_subscription_from_stripe_not_the_event(client, make_user, fake, db_session):
