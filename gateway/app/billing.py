@@ -58,7 +58,7 @@ DEFAULT_PLANS = [
     {
         "id": "pro",
         "name": "Pro",
-        "price": 29,
+        "price": 20,
         "sort_order": 1,
         "limits": {
             "workspaces": 10,

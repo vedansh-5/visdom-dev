@@ -17,7 +17,7 @@ def test_list_plans(client):
         "storage_mb": 1024,
         "workspace_storage_mb": 1024,
     }
-    assert pro["price"] == 29
+    assert pro["price"] == 20
     assert pro["limits"]["members"] is None
     assert enterprise["price"] is None
     assert enterprise["limits"] == {
