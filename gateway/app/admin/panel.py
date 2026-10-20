@@ -24,7 +24,7 @@ from starlette.exceptions import HTTPException
 from starlette.requests import Request
 from starlette.responses import RedirectResponse, Response
 
-from app import account_deletion, billing, payments
+from app import account_deletion, billing, bypass, payments
 from app import email as outbound
 from app.admin import activity, janitor, leftovers, permissions, roles, wording
 from app.admin.audit import StaffAuditBackend, remember
@@ -218,12 +218,13 @@ class UserAdmin(ChangeableView, model=User):
         User.email,
         User.username,
         User.tier,
+        User.bypass_limits,
         User.is_active,
         User.trashed_at,
         User.created_at,
         User.last_login_at,
     ]
-    column_labels = {User.trashed_at: "In trash since"}
+    column_labels = {User.bypass_limits: "Limits bypassed", User.trashed_at: "In trash since"}
     column_searchable_list = [User.email, User.username]
     column_sortable_list = [
         User.email,
@@ -237,12 +238,21 @@ class UserAdmin(ChangeableView, model=User):
         User.created_at: _to_the_minute("created_at"),
         User.last_login_at: _to_the_minute("last_login_at", "never"),
         User.trashed_at: _to_the_minute("trashed_at"),
+        User.bypass_limits: lambda model, _attr: "bypassed" if model.bypass_limits else "",
     }
-    form_columns = [User.is_active, User.tier, User.password_hash]
+    form_columns = [User.is_active, User.tier, User.bypass_limits, User.password_hash]
     form_include_pk = True
     form_overrides = {"tier": wtforms.SelectField, "password_hash": wtforms.PasswordField}
     form_args = {
         "tier": {"label": "Plan", "choices": lambda: _tier_choices()},
+        "bypass_limits": {
+            "label": "Bypass plan limits",
+            "description": (
+                "Superadmins only. Holds this account to no limit at all until it is switched off: "
+                "workspaces, members, API keys, storage and how long work is kept. "
+                "The plan itself is left as it is."
+            ),
+        },
         "password_hash": {
             "label": "Set a new password",
             "description": (
@@ -1610,6 +1620,131 @@ class PermissionsView(BaseView):
         )
 
 
+class LimitBypassView(BaseView):
+    """Bypassing plan limits, for one account or for every account at once.
+
+    One account is a decision about one customer and can also be made on that
+    account's own form. Every account is a promotion: it reaches accounts that
+    register later too, and it removes the storage ceilings for the whole
+    platform. Either way it hands out what the plans hold back, so the page is
+    for the one role that can change the plans.
+
+    Both are switches rather than plan changes on purpose. Nothing about any
+    account's plan is touched, so switching off puts back exactly what was
+    there, with no list of who was on what to restore.
+    """
+
+    name = "Limit bypass"
+    icon = "fa-solid fa-unlock"
+    category = "Billing"
+    category_icon = "fa-solid fa-layer-group"
+
+    def is_visible(self, request: Request) -> bool:
+        return self._allowed(request)
+
+    def is_accessible(self, request: Request) -> bool:
+        return self._allowed(request)
+
+    @staticmethod
+    def _allowed(request: Request) -> bool:
+        return roles.can_bypass_limits(request.session.get(ROLE_KEY))
+
+    @expose("/limit-bypass", methods=["GET", "POST"])
+    async def limit_bypass(self, request: Request):
+        """Show what is bypassed, and switch it.
+
+        The role check is load bearing, as on the cleanup page: sqladmin applies
+        ``is_accessible`` to the menu entry and not to an exposed route.
+        """
+        if not self._allowed(request):
+            return Response("Forbidden", status_code=403)
+
+        if request.method == "POST":
+            kind, message = await self._act(request)
+            query = urlencode({"notice": message, "notice_kind": kind})
+            return RedirectResponse(request.url.replace(query=query), status_code=303)
+
+        db = SessionLocal()
+        try:
+            switch = bypass.standing(db)
+            everyone = {
+                "on": bool(switch is not None and switch.is_on),
+                "changed_by": switch.changed_by if switch is not None else None,
+                "changed_at": (
+                    switch.changed_at.strftime("%Y-%m-%d %H:%M")
+                    if switch is not None and switch.changed_at
+                    else None
+                ),
+            }
+            accounts = [
+                {"id": str(user.id), "email": user.email, "plan": user.tier or billing.DEFAULT_TIER}
+                for user in bypass.accounts(db)
+            ]
+            total = db.query(User).count()
+        finally:
+            db.close()
+        return await self.templates.TemplateResponse(
+            request,
+            "sqladmin/limit_bypass.html",
+            {
+                "everyone": everyone,
+                "accounts": accounts,
+                "total": total,
+            },
+        )
+
+    async def _act(self, request: Request):
+        form = await request.form()
+        intent = str(form.get("intent") or "")
+        if intent in ("everyone_on", "everyone_off"):
+            return self._switch_everyone(request, intent == "everyone_on")
+        if intent == "account_on":
+            return self._switch_account(request, True, email=str(form.get("email") or ""))
+        if intent == "account_off":
+            return self._switch_account(request, False, user_id=str(form.get("user_id") or ""))
+        return "error", "Nothing was changed."
+
+    @staticmethod
+    def _switch_everyone(request: Request, on: bool):
+        db = SessionLocal()
+        try:
+            changed = bypass.set_for_everyone(db, on, by=request.session.get(EMAIL_KEY))
+        finally:
+            db.close()
+        if not changed:
+            return "info", "That was already %s." % ("on" if on else "off")
+        _record_action(request, "update", "PlatformSwitch", bypass.EVERYONE, {"is_on": on})
+        if on:
+            return "success", "Plan limits are now bypassed for every account."
+        return "success", "Every account is back on its plan's limits."
+
+    @staticmethod
+    def _switch_account(request: Request, on: bool, email: str = "", user_id: str = ""):
+        db = SessionLocal()
+        try:
+            user = None
+            if email.strip():
+                wanted = email.strip().lower()
+                user = db.query(User).filter(func.lower(User.email) == wanted).first()
+            elif user_id:
+                try:
+                    user = db.get(User, uuid.UUID(user_id))
+                except ValueError:
+                    user = None
+            if user is None:
+                return "error", "No account matches that."
+            found_id, found_email = str(user.id), user.email
+            changed = bypass.set_for_account(db, user, on)
+        finally:
+            db.close()
+        if not changed:
+            return "info", "%s was already %s." % (found_email, "bypassed" if on else "on its plan's limits")
+        _record_action(request, "update", "User", found_id, {"bypass_limits": on})
+        if on:
+            return "success", f"Plan limits are now bypassed for {found_email}."
+        return "success", f"{found_email} is back on its plan's limits."
+
+
 class JanitorView(BaseView):
     """Leftovers worth a look, on one page.
 
@@ -2165,10 +2300,31 @@ def _janitor_url(admin, request):
     name is `view-page` here and would change with the method. Reading it off
     the registered view keeps that detail out of the templates.
     """
+    return _view_url(admin, request, JanitorView)
+
+
+def _view_url(admin, request, kind):
     for view in admin._views:
-        if isinstance(view, JanitorView):
+        if isinstance(view, kind):
             return request.url_for(f"admin:view-{view.identity}")
     return None
+
+
+def limits_bypassed_for_everyone():
+    """Whether the switch for every account is on, for the marker in the header.
+
+    A promotion is easy to start and easy to forget, and while it runs nothing
+    holds storage back. So it is said on every page of the panel rather than
+    only on the page that switches it.
+    """
+    db = SessionLocal()
+    try:
+        return bypass.for_everyone(db)
+    except Exception as exc:
+        logging.warning("could not read the limit bypass switch: %s", exc)
+        return False
+    finally:
+        db.close()
 
 
 def _creatables(admin, request):
@@ -2234,6 +2390,12 @@ def mount_admin(app, secret_key, base_url="/admin"):
         lambda request: _janitor_url(admin, request)
     )
     admin.templates.env.globals["record_label"] = record_label
+    admin.templates.env.globals["limits_bypassed_for_everyone"] = limits_bypassed_for_everyone
+    admin.templates.env.globals["limit_bypass_url"] = lambda request: (
+        _view_url(admin, request, LimitBypassView)
+        if roles.can_bypass_limits(request.session.get(ROLE_KEY))
+        else None
+    )
     from app.admin.usage_view import UsageView
 
     for view in VIEWS:
@@ -2241,6 +2403,7 @@ def mount_admin(app, secret_key, base_url="/admin"):
     admin.add_view(AccountTrashView)
     admin.add_view(PermissionsView)
     admin.add_view(PlanMovesView)
+    admin.add_view(LimitBypassView)
     admin.add_view(JanitorView)
     admin.add_view(UsageView)
     return admin

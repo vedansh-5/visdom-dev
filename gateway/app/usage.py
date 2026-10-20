@@ -15,7 +15,8 @@ from fastapi import HTTPException, status
 from sqlalchemy import and_, func
 from sqlalchemy.orm import Session
 
-from app.billing import at_limit, limit_for
+from app import bypass
+from app.billing import LIMIT_KEYS, get_plan
 from app.models import APIKey, Membership, User, Workspace, WorkspaceInvite, WorkspaceUsageHour
 
 
@@ -88,10 +89,27 @@ def usage(db: Session, user: User) -> dict:
     return {name: count(db, user) for name, count in COUNTERS.items()}
 
 
+def allowances(db: Session, user: User) -> dict:
+    """What an account may have of each thing its plan counts, None for no ceiling.
+
+    The plan decides, unless the account's limits are bypassed. Every check
+    that refuses something asks here rather than asking the plan, so a bypass
+    lifts all of them and cannot miss one.
+    """
+    if bypass.applies_to(db, user):
+        return dict.fromkeys(LIMIT_KEYS)
+    return dict(get_plan(db, user.tier)["limits"])
+
+
+def allowance(db: Session, user: User, resource: str):
+    return allowances(db, user).get(resource)
+
+
 def refuse_if_at_limit(db: Session, user: User, resource: str) -> None:
     """Stop a creation that the account's plan does not allow."""
     tier = user.tier or "free"
-    if not at_limit(db, tier, resource, COUNTERS[resource](db, user)):
+    ceiling = allowance(db, user, resource)
+    if ceiling is None or COUNTERS[resource](db, user) < ceiling:
         return
     raise HTTPException(
         status_code=status.HTTP_402_PAYMENT_REQUIRED,
@@ -107,7 +125,7 @@ def refuse_if_no_seat(db: Session, owner: User) -> None:
     end up with all of them as members.
     """
     tier = owner.tier or "free"
-    ceiling = limit_for(db, tier, "members")
+    ceiling = allowance(db, owner, "members")
     if ceiling is None:
         return
     waiting = invites_waiting(db, owner)
@@ -131,8 +149,7 @@ def refuse_if_full(db: Session, owner: User) -> None:
     the invite that was sent before seats were held, or the plan that shrank
     while it waited.
     """
-    tier = owner.tier or "free"
-    ceiling = limit_for(db, tier, "members")
+    ceiling = allowance(db, owner, "members")
     if ceiling is None or members_used(db, owner) < ceiling:
         return
     raise HTTPException(
@@ -193,7 +210,7 @@ def workspace_storage_limit(db: Session, workspace: Workspace) -> int | None:
     owner = workspace.creator
     if owner is None:
         return None
-    limit_mb = limit_for(db, owner.tier, "workspace_storage_mb")
+    limit_mb = allowance(db, owner, "workspace_storage_mb")
     return None if limit_mb is None else limit_mb * MEGABYTE
 
 
@@ -222,7 +239,7 @@ def refuse_writes_over_storage(db: Session, workspace: Workspace) -> None:
                 "Viewing still works; deleting old environments frees space."
             ),
         )
-    limit_mb = limit_for(db, owner.tier, "storage_mb")
+    limit_mb = allowance(db, owner, "storage_mb")
     if limit_mb is None:
         return
     used = storage_used(db, owner)
