@@ -29,14 +29,12 @@ _SUPPORT_VISIBLE = {
     "Membership",
     "APIKey",
     "WorkspaceInvite",
-    "SharedLink",
-    "AdminAction",
 }
 
 _VISIBLE = {
     SUPPORT: _SUPPORT_VISIBLE,
     ADMIN: _SUPPORT_VISIBLE,
-    SUPERADMIN: _SUPPORT_VISIBLE | {"AdminUser", "Plan"},
+    SUPERADMIN: _SUPPORT_VISIBLE | {"SharedLink", "AdminUser", "Plan", "AdminAction"},
 }
 
 _CHANGEABLE = {
@@ -85,6 +83,7 @@ _EDITABLE_FIELDS = {
             "limits",
             "features",
             "retention_days",
+            "stripe_price_id",
         },
     ),
 }
@@ -131,6 +130,15 @@ def can_bypass_limits(role):
     sits with the one role that can change the plans themselves.
     """
     return "bypass_limits" in editable_fields(role, "User")
+
+
+def can_trash_accounts(role):
+    """Whether this role may put accounts in the trash, restore them, or delete them.
+
+    One role only. Trashing locks a person out and deleting cannot be undone,
+    so neither is a day to day support action.
+    """
+    return role == SUPERADMIN
 
 
 def is_valid(role):

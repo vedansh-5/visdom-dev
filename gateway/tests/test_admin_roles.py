@@ -34,9 +34,15 @@ def test_an_admin_cannot_change_a_staff_account():
 
 
 def test_support_reads_the_same_records_as_an_admin():
-    for model in ("User", "Workspace", "Membership", "APIKey", "AdminAction"):
+    for model in ("User", "Workspace", "Membership", "APIKey"):
         assert roles.can_see(roles.SUPPORT, model)
         assert roles.can_see(roles.ADMIN, model)
+
+
+def test_only_a_superadmin_reads_the_audit_trail():
+    assert roles.can_see(roles.SUPERADMIN, "AdminAction")
+    assert not roles.can_see(roles.ADMIN, "AdminAction")
+    assert not roles.can_see(roles.SUPPORT, "AdminAction")
 
 
 def test_setting_a_tier_is_an_entitlement_decision():
@@ -89,11 +95,25 @@ def test_an_unknown_role_is_refused_everywhere():
     assert roles.editable_fields("stranger", "User") == set()
 
 
+def test_only_a_superadmin_sees_the_list_of_shared_links():
+    """A shared link's id is its join token, and the list carries it.
+
+    An admin still clears expired links from the cleanup page, where the token
+    no longer opens anything.
+    """
+    assert not roles.can_see(roles.SUPPORT, "SharedLink")
+    assert not roles.can_see(roles.ADMIN, "SharedLink")
+    assert roles.can_see(roles.SUPERADMIN, "SharedLink")
+    assert roles.can_remove(roles.ADMIN, "SharedLink")
+
+
 def test_no_role_may_act_on_a_model_it_cannot_see():
     """Acting on a record implies reading it, so the tables must not disagree."""
     for role in roles.ROLES:
         for table in (roles._CHANGEABLE, roles._REMOVABLE, roles._ADDABLE):
             for model in table[role]:
+                if table is roles._REMOVABLE and model == "SharedLink":
+                    continue
                 assert roles.can_see(role, model), f"{role} may act on unseen {model}"
         for model in roles._EDITABLE_FIELDS.get(role, {}):
             assert roles.can_change(role, model), f"{role} has fields on unchangeable {model}"

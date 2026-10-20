@@ -27,8 +27,26 @@ x-visdom: &visdom
     VISDOM_GATEWAY_URL: http://gateway:${GATEWAY_PORT}
     VISDOM_PROXY_URL: http://proxy:${NGINX_PORT}
     VISDOM_OWNERSHIP_INTERVAL: ${VISDOM_OWNERSHIP_INTERVAL:-30}
+    VISDOM_INTERNAL_READ_KEYS: ${VISDOM_INTERNAL_READ_KEY},${VISDOM_INTERNAL_READ_KEY_PREVIOUS:-}
+    VISDOM_INTERNAL_ADMIN_KEYS: ${VISDOM_INTERNAL_ADMIN_KEY},${VISDOM_INTERNAL_ADMIN_KEY_PREVIOUS:-}
+  entrypoint: ["python", "-m", "visdom.server"]
+  command:
+    - -port
+    - ${VISDOM_PORT}
+    - -base_url
+    - ${VISDOM_BASE_URL}
+    - -env_path
+    - ${VISDOM_ENV_PATH}
+    - -internal_port
+    - ${VISDOM_INTERNAL_PORT}
+    - -internal_ssl_certfile
+    - /internal-tls/internal.crt
+    - -internal_ssl_keyfile
+    - /internal-tls/internal.key
   volumes:
     - visdom_data:${VISDOM_ENV_PATH}
+    - ./deploy/internal-tls/internal.crt:/internal-tls/internal.crt:ro
+    - ./deploy/internal-tls/internal.key:/internal-tls/internal.key:ro
   depends_on:
     - gateway
 
@@ -81,6 +99,15 @@ services:
       KEY_REVOKE_HOURS: ${KEY_REVOKE_HOURS:-24}
       RETENTION_ENFORCE: ${RETENTION_ENFORCE:-False}
       RETENTION_STARTS: ${RETENTION_STARTS:-}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
+      STRIPE_PUBLISHABLE_KEY: ${STRIPE_PUBLISHABLE_KEY:-}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+      VISDOM_INTERNAL_PORT: ${VISDOM_INTERNAL_PORT}
+      VISDOM_INTERNAL_READ_KEY: ${VISDOM_INTERNAL_READ_KEY}
+      VISDOM_INTERNAL_ADMIN_KEY: ${VISDOM_INTERNAL_ADMIN_KEY}
+      VISDOM_INTERNAL_CA: /internal-tls/internal-ca.pem
+    volumes:
+      - ./deploy/internal-tls/internal-ca.pem:/internal-tls/internal-ca.pem:ro
     depends_on:
       db:
         condition: service_healthy

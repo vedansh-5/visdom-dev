@@ -27,6 +27,28 @@ class StaffAuditBackend(DBAuditBackend):
         self.session_key = session_key
         self.email_key = email_key
 
+    async def log(self, entry, request):
+        """Keep only what an edit actually changed, with what it was before.
+
+        A form save hands over every field on the form, changed or not. Stored
+        like that, an entry cannot say what happened, only what the record
+        looked like afterwards. An edit that changed nothing is not recorded.
+        """
+        before = getattr(request.state, "audit_before", None)
+        if entry.action == "update" and before is not None and entry.changes is not None:
+            changed = {
+                key: value
+                for key, value in entry.changes.items()
+                if key not in before or before[key] != value
+            }
+            if not changed:
+                return
+            was = {key: before[key] for key in changed if key in before and not _is_secret(key)}
+            if was:
+                changed["was"] = was
+            entry.changes = changed
+        await super().log(entry, request)
+
     async def get_actor(self, request):
         return request.session.get(self.session_key)
 
@@ -65,8 +87,24 @@ def _serialisable(changes):
     for key, value in changes.items():
         if _is_secret(key):
             clean[key] = _REDACTED
-        elif isinstance(value, (str, int, float, bool)) or value is None:
-            clean[key] = value
         else:
-            clean[key] = str(value)
+            clean[key] = _plain(value)
     return clean
+
+
+def _plain(value):
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+    if isinstance(value, dict):
+        return {str(key): _REDACTED if _is_secret(str(key)) else _plain(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_plain(item) for item in value]
+    return str(value)
+
+
+def remember(request, data, model, is_created):
+    """Note what a record held before a form save, for ``log`` to compare with."""
+    state = getattr(request, "state", None)
+    if state is None:
+        return
+    state.audit_before = None if is_created else {key: getattr(model, key, None) for key in data}

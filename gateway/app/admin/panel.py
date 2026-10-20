@@ -18,16 +18,17 @@ from urllib.parse import urlencode
 import wtforms
 from sqladmin import Admin, BaseView, ModelView, expose
 from sqladmin.authentication import AuthenticationBackend
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlalchemy.orm import joinedload
 from starlette.exceptions import HTTPException
 from starlette.requests import Request
 from starlette.responses import RedirectResponse, Response
 
-from app import billing, bypass
+from app import account_deletion, billing, bypass, payments
 from app import email as outbound
-from app.admin import activity, janitor, leftovers, roles
-from app.admin.audit import StaffAuditBackend
+from app.admin import activity, janitor, leftovers, permissions, roles, wording
+from app.admin.audit import StaffAuditBackend, remember
+from app.admin.limit_boxes import FeatureLines, LimitsField
 from app.config import settings
 from app.database import SessionLocal, engine
 from app.models import (
@@ -55,6 +56,9 @@ DANGEROUS_ENVIRONMENTS = ("prod", "production", "live")
 
 
 class StaffAuth(AuthenticationBackend):
+    def __init__(self, secret_key, path="/admin"):
+        super().__init__(secret_key=secret_key, https_only=settings.COOKIE_SECURE, path=path)
+
     async def login(self, request: Request) -> bool:
         form = await request.form()
         email = (form.get("username") or "").strip().lower()
@@ -99,6 +103,7 @@ class StaffAuth(AuthenticationBackend):
                 return RedirectResponse(request.url_for("admin:login"), status_code=302)
             request.session[ROLE_KEY] = admin.role
             request.session[EMAIL_KEY] = admin.email
+            request.session[permissions.GRANTS_KEY] = permissions.held_by(db, admin)
         finally:
             db.close()
         return True
@@ -147,6 +152,7 @@ class ChangeableView(RoleScopedView):
         is applied to what was submitted instead, which also covers a request
         that never came from the form.
         """
+        remember(request, data, model, is_created)
         allowed = roles.editable_fields(
             request.session.get(ROLE_KEY), self.model.__name__
         )
@@ -214,10 +220,11 @@ class UserAdmin(ChangeableView, model=User):
         User.tier,
         User.bypass_limits,
         User.is_active,
+        User.trashed_at,
         User.created_at,
         User.last_login_at,
     ]
-    column_labels = {User.bypass_limits: "Limits bypassed"}
+    column_labels = {User.bypass_limits: "Limits bypassed", User.trashed_at: "In trash since"}
     column_searchable_list = [User.email, User.username]
     column_sortable_list = [
         User.email,
@@ -230,6 +237,7 @@ class UserAdmin(ChangeableView, model=User):
     column_formatters = {
         User.created_at: _to_the_minute("created_at"),
         User.last_login_at: _to_the_minute("last_login_at", "never"),
+        User.trashed_at: _to_the_minute("trashed_at"),
         User.bypass_limits: lambda model, _attr: "bypassed" if model.bypass_limits else "",
     }
     form_columns = [User.is_active, User.tier, User.bypass_limits, User.password_hash]
@@ -294,6 +302,11 @@ class UserAdmin(ChangeableView, model=User):
         chosen = (data.get("password_hash") or "").strip()
         if not chosen:
             data.pop("password_hash", None)
+        if model.trashed_at is not None and data.get("is_active"):
+            raise HTTPException(
+                status_code=400,
+                detail="This account is in the trash. Restore it from the Account trash page.",
+            )
         await super().on_model_change(data, model, is_created, request)
         if chosen:
             data["password_hash"] = get_password_hash(chosen)
@@ -883,6 +896,7 @@ class PlanAdmin(RoleScopedView, model=Plan):
         Plan.limits,
         Plan.features,
         Plan.retention_days,
+        Plan.stripe_price_id,
     ]
     form_create_rules = [
         "id",
@@ -893,6 +907,7 @@ class PlanAdmin(RoleScopedView, model=Plan):
         "limits",
         "features",
         "retention_days",
+        "stripe_price_id",
     ]
     form_edit_rules = [
         "name",
@@ -903,10 +918,16 @@ class PlanAdmin(RoleScopedView, model=Plan):
         "limits",
         "features",
         "retention_days",
+        "stripe_price_id",
     ]
+    form_overrides = {"limits": LimitsField, "features": FeatureLines}
     form_args = {
         "id": {"description": "Lowercase letters, numbers and hyphens. Cannot be changed later."},
         "price": {"description": "Monthly price in whole units. Leave empty to show 'Custom'."},
+        "sort_order": {
+            "label": "Position in lists",
+            "description": "Lower numbers come first on the billing page and in plan dropdowns.",
+        },
         "is_public": {
             "label": "Public",
             "description": "Shown on the pricing page and pickable by users. Hidden plans are assigned by staff.",
@@ -917,10 +938,18 @@ class PlanAdmin(RoleScopedView, model=Plan):
         },
         "limits": {
             "default": dict.fromkeys(billing.LIMIT_KEYS, 0),
-            "description": "Every limit must be set; null means unlimited.",
+            "description": "Leave a box empty for unlimited. Storage is in MB, so 1024 is 1 GB.",
         },
-        "features": {"default": [], "description": "The bullet points on the pricing page."},
+        "features": {
+            "default": [],
+            "description": "The bullet points on the pricing page, one to a line.",
+            "render_kw": {"rows": 6},
+        },
         "retention_days": {"description": "Leave empty for unlimited."},
+        "stripe_price_id": {
+            "label": "Stripe price",
+            "description": "The monthly Stripe price, starting price_. Empty means it cannot be bought online.",
+        },
     }
 
     async def check_can_create(self, request: Request) -> bool:
@@ -937,6 +966,7 @@ class PlanAdmin(RoleScopedView, model=Plan):
         The id is what accounts point at, so changing it would move every
         account on the plan onto whatever the new id named.
         """
+        remember(request, data, model, is_created)
         role = request.session.get(ROLE_KEY)
         if is_created:
             if not roles.can_add(role, self.model.__name__):
@@ -977,6 +1007,23 @@ class PlanAdmin(RoleScopedView, model=Plan):
             value = data.get(key)
             if value is not None and value < 0:
                 raise HTTPException(status_code=400, detail=f"{key} cannot be negative.")
+        if "stripe_price_id" in data:
+            price_id = (data.get("stripe_price_id") or "").strip() or None
+            if price_id is not None and not payments.PRICE_ID.match(price_id):
+                raise HTTPException(status_code=400, detail="A Stripe price starts with price_.")
+            if price_id is not None:
+                db = SessionLocal()
+                try:
+                    taken = (
+                        db.query(Plan.id)
+                        .filter(Plan.stripe_price_id == price_id, Plan.id != (model.id if model else None))
+                        .first()
+                    )
+                finally:
+                    db.close()
+                if taken:
+                    raise HTTPException(status_code=400, detail=f"Plan {taken[0]} already uses that price.")
+            data["stripe_price_id"] = price_id
 
 
 class AdminUserAdmin(RoleScopedView, model=AdminUser):
@@ -1038,6 +1085,7 @@ class AdminUserAdmin(RoleScopedView, model=AdminUser):
         self, data: dict, model, is_created: bool, request: Request
     ) -> None:
         """Creating checks the whole form. Editing may only stop an account."""
+        remember(request, data, model, is_created)
         role = request.session.get(ROLE_KEY)
         if not is_created:
             self._check_edit(data, model, role)
@@ -1119,10 +1167,16 @@ class PlanMovesView(BaseView):
     applies to everyone on a plan. Doing that one row at a time is where
     mistakes happen, so it is one form with a count in front of it.
 
+    Below that is the list of accounts, for the group that is not "everyone on
+    a plan": search or filter, tick the ones that matter, and move them
+    together, whatever plans they start on.
+
     The narrower alternative is worth knowing about and is often the better
     answer: changing what a plan allows, on the plans page, reaches every
     account on it at once without moving anybody.
     """
+
+    PICK_LIMIT = 500
 
     name = "Plan moves"
     icon = "fa-solid fa-right-left"
@@ -1150,9 +1204,17 @@ class PlanMovesView(BaseView):
         if not self._allowed(request):
             return Response("Forbidden", status_code=403)
 
+        search = (request.query_params.get("q") or "").strip()
+        on_plan = (request.query_params.get("plan") or "").strip()
+
         if request.method == "POST":
-            kind, message = await self._move(request)
-            query = urlencode({"notice": message, "notice_kind": kind})
+            form = await request.form()
+            if form.get("intent") == "move_picked":
+                kind, message = self._move_picked(request, form)
+            else:
+                kind, message = await self._move(request)
+            kept = {key: value for key, value in (("q", search), ("plan", on_plan)) if value}
+            query = urlencode({**kept, "notice": message, "notice_kind": kind})
             return RedirectResponse(request.url.replace(query=query), status_code=303)
 
         db = SessionLocal()
@@ -1169,13 +1231,90 @@ class PlanMovesView(BaseView):
                 }
                 for plan in db.query(Plan).order_by(Plan.sort_order, Plan.id).all()
             ]
+            listed = db.query(User)
+            if search:
+                wanted = search.lower()
+                listed = listed.filter(
+                    or_(
+                        func.lower(User.email).contains(wanted, autoescape=True),
+                        func.lower(User.username).contains(wanted, autoescape=True),
+                    )
+                )
+            if on_plan:
+                listed = listed.filter(User.tier == on_plan)
+            matching = listed.count()
+            names = {plan["id"]: plan["name"] for plan in plans}
+            accounts = [
+                {
+                    "id": str(user.id),
+                    "email": user.email,
+                    "username": user.username,
+                    "plan": names.get(user.tier, user.tier or "none"),
+                    "joined": user.created_at.strftime("%Y-%m-%d") if user.created_at else "",
+                }
+                for user in listed.order_by(User.email).limit(self.PICK_LIMIT).all()
+            ]
         finally:
             db.close()
         return await self.templates.TemplateResponse(
             request,
             "sqladmin/plan_moves.html",
-            {"plans": plans, "movable": [plan for plan in plans if not plan["archived"]]},
+            {
+                "plans": plans,
+                "movable": [plan for plan in plans if not plan["archived"]],
+                "accounts": accounts,
+                "matching": matching,
+                "search": search,
+                "on_plan": on_plan,
+            },
         )
+
+    def _move_picked(self, request: Request, form):
+        """Put the ticked accounts onto one plan, whatever plans they were on.
+
+        Checked against the same rule as every other plan change, and recorded
+        per account, because the trail is read by asking what happened to one.
+        """
+        if not self._allowed(request):
+            return "error", "Your role cannot change plans."
+
+        target = str(form.get("to_plan") or "").strip()
+        picked = []
+        for raw in form.getlist("row_ids"):
+            try:
+                picked.append(uuid.UUID(str(raw)))
+            except ValueError:
+                continue
+        if not picked:
+            return "info", "No account was ticked, so nothing was moved."
+        if not target:
+            return "error", "Choose the plan to move the ticked accounts to."
+
+        db = SessionLocal()
+        try:
+            if not billing.assignable(db, target):
+                return "error", f"{target} is archived or does not exist, so nobody can be put on it."
+            accounts = db.query(User).filter(User.id.in_(picked)).all()
+            moved = [(str(user.id), user.tier) for user in accounts if user.tier != target]
+            for user in accounts:
+                user.tier = target
+            db.commit()
+            staying = len(accounts) - len(moved)
+        finally:
+            db.close()
+
+        for user_id, source in moved:
+            _record_action(
+                request, "update", "User", user_id,
+                {"tier": target, "moved_from": source, "moved_in_bulk": True},
+            )
+        if not moved:
+            return "info", f"Every ticked account was already on {target}."
+        count = len(moved)
+        message = f"Moved {count} account{'' if count == 1 else 's'} to {target}."
+        if staying:
+            message += f" {staying} {'was' if staying == 1 else 'were'} already on it."
+        return "success", message
 
     async def _move(self, request: Request):
         """Put every account on one plan onto another.
@@ -1217,6 +1356,268 @@ class PlanMovesView(BaseView):
             )
         count = len(moved)
         return "success", f"Moved {count} account{'' if count == 1 else 's'} from {source} to {target}."
+
+
+class AccountTrashView(BaseView):
+    """Putting accounts in the trash, and emptying it by hand.
+
+    Trashing removes nothing: the account is locked out and everything it owns
+    stays where it is, so restoring puts it back exactly. Deleting for good is
+    only offered from the trash, which makes it two deliberate steps, and the
+    trash never empties itself.
+    """
+
+    name = "Account trash"
+    icon = "fa-solid fa-user-slash"
+    category = "People"
+    category_icon = "fa-solid fa-users"
+
+    PICK_LIMIT = 500
+
+    def is_visible(self, request: Request) -> bool:
+        return self._allowed(request)
+
+    def is_accessible(self, request: Request) -> bool:
+        return self._allowed(request)
+
+    @staticmethod
+    def _allowed(request: Request) -> bool:
+        return permissions.has(request, permissions.TRASH_ACCOUNTS) or permissions.has(
+            request, permissions.DELETE_ACCOUNTS
+        )
+
+    @expose("/account-trash", methods=["GET", "POST"])
+    async def account_trash(self, request: Request):
+        if not self._allowed(request):
+            return Response("Forbidden", status_code=403)
+
+        search = (request.query_params.get("q") or "").strip()
+        if request.method == "POST":
+            form = await request.form()
+            kind, message = self._act(request, form)
+            kept = {"q": search} if search else {}
+            query = urlencode({**kept, "notice": message, "notice_kind": kind})
+            return RedirectResponse(request.url.replace(query=query), status_code=303)
+
+        db = SessionLocal()
+        try:
+            listed = db.query(User).filter(User.trashed_at.is_(None))
+            if search:
+                wanted = search.lower()
+                listed = listed.filter(
+                    or_(
+                        func.lower(User.email).contains(wanted, autoescape=True),
+                        func.lower(User.username).contains(wanted, autoescape=True),
+                    )
+                )
+            matching = listed.count()
+            accounts = [
+                {
+                    "id": str(user.id),
+                    "email": user.email,
+                    "username": user.username,
+                    "plan": user.tier or "none",
+                    "joined": user.created_at.strftime("%Y-%m-%d") if user.created_at else "",
+                    "last_seen": user.last_login_at.strftime("%Y-%m-%d") if user.last_login_at else "never",
+                }
+                for user in listed.order_by(User.email).limit(self.PICK_LIMIT).all()
+            ]
+            trashed = []
+            for user in db.query(User).filter(User.trashed_at.isnot(None)).order_by(User.trashed_at.desc()).all():
+                state = account_deletion.standing(db, user)
+                trashed.append(
+                    {
+                        "id": str(user.id),
+                        "email": user.email,
+                        "when": user.trashed_at.strftime("%Y-%m-%d %H:%M"),
+                        "by": user.trashed_by or "unknown",
+                        "goes_with": [ws.slug for ws in state["leaving_with"]],
+                        "blocked_by": [ws.slug for ws, _ in state["blockers"]],
+                    }
+                )
+        finally:
+            db.close()
+        return await self.templates.TemplateResponse(
+            request,
+            "sqladmin/account_trash.html",
+            {
+                "accounts": accounts,
+                "matching": matching,
+                "search": search,
+                "trashed": trashed,
+                "may_trash": permissions.has(request, permissions.TRASH_ACCOUNTS),
+                "may_delete": permissions.has(request, permissions.DELETE_ACCOUNTS),
+            },
+        )
+
+    def _act(self, request: Request, form):
+        intent = str(form.get("intent") or "")
+        picked = []
+        for raw in form.getlist("row_ids"):
+            try:
+                picked.append(uuid.UUID(str(raw)))
+            except ValueError:
+                continue
+        if not picked:
+            return "info", "No account was ticked, so nothing was changed."
+        if intent in ("trash", "restore"):
+            if not permissions.has(request, permissions.TRASH_ACCOUNTS):
+                return "error", "You have not been given permission to trash or restore accounts."
+            return self._trash(request, picked) if intent == "trash" else self._restore(request, picked)
+        if intent == "delete":
+            if not permissions.has(request, permissions.DELETE_ACCOUNTS):
+                return "error", "You have not been given permission to delete accounts for good."
+            return self._delete(request, picked)
+        return "error", "Nothing was changed."
+
+    @staticmethod
+    def _counted(count: int) -> str:
+        return f"{count} account{'' if count == 1 else 's'}"
+
+    def _trash(self, request: Request, picked):
+        staff = request.session.get(EMAIL_KEY)
+        db = SessionLocal()
+        try:
+            moved = []
+            for user in db.query(User).filter(User.id.in_(picked)).all():
+                if account_deletion.trash(db, user, staff):
+                    moved.append((str(user.id), user.email))
+        finally:
+            db.close()
+        for user_id, email in moved:
+            _record_action(request, "update", "User", user_id, {"trashed": True, "email": email})
+        if not moved:
+            return "info", "Those accounts were already in the trash."
+        return "success", f"Moved {self._counted(len(moved))} to the trash. Nothing was deleted."
+
+    def _restore(self, request: Request, picked):
+        db = SessionLocal()
+        try:
+            back = []
+            for user in db.query(User).filter(User.id.in_(picked)).all():
+                if account_deletion.restore(db, user):
+                    back.append((str(user.id), user.email))
+        finally:
+            db.close()
+        for user_id, email in back:
+            _record_action(request, "update", "User", user_id, {"trashed": False, "email": email})
+        if not back:
+            return "info", "None of those accounts was in the trash."
+        return "success", f"Restored {self._counted(len(back))}. They can sign in again."
+
+    def _delete(self, request: Request, picked):
+        """Remove accounts that are already in the trash, one at a time.
+
+        One account being refused does not stop the rest, and the message names
+        each one that stayed and why.
+        """
+        staff_id = request.session.get(SESSION_KEY)
+        staff_email = request.session.get(EMAIL_KEY)
+        gone, stayed = 0, []
+        db = SessionLocal()
+        try:
+            ids = [
+                row[0]
+                for row in db.query(User.id).filter(User.id.in_(picked), User.trashed_at.isnot(None)).all()
+            ]
+            for user_id in ids:
+                user = db.get(User, user_id)
+                if user is None:
+                    continue
+                email = user.email
+                try:
+                    account_deletion.remove(
+                        db, user, "deleted from the trash by staff", staff_id, staff_email
+                    )
+                    gone += 1
+                except account_deletion.StillNeeded as exc:
+                    db.rollback()
+                    stayed.append(f"{email} still owns {exc}, which other people use")
+                except activity.FilesKept:
+                    db.rollback()
+                    stayed.append(f"{email}: its plot files could not be removed, try again")
+                except (payments.PaymentsDown, payments.PaymentsOff):
+                    db.rollback()
+                    stayed.append(f"{email}: its paid plan could not be cancelled, try again")
+        finally:
+            db.close()
+        if not ids:
+            return "error", "Only accounts in the trash can be deleted for good."
+        message = f"Deleted {self._counted(gone)} for good." if gone else "Nothing was deleted."
+        if stayed:
+            message += " Kept: " + "; ".join(stayed) + "."
+        return ("success" if gone and not stayed else "info" if gone else "error"), message
+
+
+class PermissionsView(BaseView):
+    """Handing a superadmin's own powers to admins, one at a time.
+
+    Superadmin only, always. A grant goes to every admin or to one by name,
+    takes effect on that person's next page, and is recorded like any other
+    change.
+    """
+
+    name = "Permissions"
+    icon = "fa-solid fa-key"
+    category = "People"
+    category_icon = "fa-solid fa-users"
+
+    def is_visible(self, request: Request) -> bool:
+        return self._allowed(request)
+
+    def is_accessible(self, request: Request) -> bool:
+        return self._allowed(request)
+
+    @staticmethod
+    def _allowed(request: Request) -> bool:
+        return request.session.get(ROLE_KEY) == roles.SUPERADMIN
+
+    @expose("/permissions", methods=["GET", "POST"])
+    async def permissions_page(self, request: Request):
+        if not self._allowed(request):
+            return Response("Forbidden", status_code=403)
+
+        db = SessionLocal()
+        try:
+            if request.method == "POST":
+                form = await request.form()
+                group = set(form.getlist("group"))
+                single = {tuple(value.split("|", 1)) for value in form.getlist("single") if "|" in value}
+                changed = permissions.save(db, group, single, request.session.get(EMAIL_KEY))
+            else:
+                changed = None
+            standing = permissions.table(db)
+            admins = [{"id": str(admin.id), "email": admin.email} for admin in standing["admins"]]
+        finally:
+            db.close()
+
+        if changed is not None:
+            for change in changed:
+                label = permissions.GRANTABLE[change["permission"]][0]
+                _record_action(
+                    request, "update", "StaffGrant", change["permission"],
+                    {"granted": change["granted"], "permission": label, "to": change["to"]},
+                )
+            count = len(changed)
+            message = (
+                f"Saved {count} change{'' if count == 1 else 's'}." if count else "Nothing was changed."
+            )
+            query = urlencode({"notice": message, "notice_kind": "success" if count else "info"})
+            return RedirectResponse(request.url.replace(query=query), status_code=303)
+
+        return await self.templates.TemplateResponse(
+            request,
+            "sqladmin/permissions.html",
+            {
+                "grantable": [
+                    {"key": key, "label": label, "about": about}
+                    for key, (label, about) in permissions.GRANTABLE.items()
+                ],
+                "admins": admins,
+                "group": standing["group"],
+                "single": standing["single"],
+            },
+        )
 
 
 class LimitBypassView(BaseView):
@@ -1644,10 +2045,10 @@ def janitor_findings():
 
 
 _AUDIT_LABELS = {
-    "User": (User, lambda row: row.email),
-    "Workspace": (Workspace, lambda row: row.slug),
-    "APIKey": (APIKey, lambda row: f"{row.name} ({_email_of(row.owner)})"),
-    "AdminUser": (AdminUser, lambda row: row.email),
+    "user": (User, lambda row: row.email),
+    "workspace": (Workspace, lambda row: row.slug),
+    "apikey": (APIKey, lambda row: f"{row.name} ({_email_of(row.owner)})"),
+    "adminuser": (AdminUser, lambda row: row.email),
 }
 
 
@@ -1661,7 +2062,7 @@ def _audit_subject(model, name):
     """
     if not model.row_id:
         return "unknown"
-    known = _AUDIT_LABELS.get(model.model)
+    known = _AUDIT_LABELS.get("".join(ch for ch in str(model.model).lower() if ch.isalnum()))
     if known is None:
         return model.row_id
     table, label = known
@@ -1683,7 +2084,23 @@ def _audit_subject(model, name):
     recorded = (model.changes or {}).get("purged_from_trash")
     if recorded:
         return f"{recorded} (purged)"
+    named = (model.changes or {}).get("email")
+    if named:
+        return f"{named} (deleted)"
     return f"{model.row_id} (deleted)"
+
+
+def _audit_sentence(model, name):
+    """What happened, as one line a person can read."""
+    return wording.sentence(model.action, model.model, model.changes, _audit_subject(model, name))
+
+
+def _audit_when(model, name):
+    return model.created_at.strftime("%Y-%m-%d %H:%M:%S") if model.created_at else ""
+
+
+def _audit_who(model, name):
+    return model.admin_email or "automatic"
 
 
 class AdminActionAdmin(RoleScopedView, model=AdminAction):
@@ -1698,25 +2115,41 @@ class AdminActionAdmin(RoleScopedView, model=AdminAction):
     icon = "fa-solid fa-clipboard-list"
     category = "Operations"
     category_icon = "fa-solid fa-screwdriver-wrench"
-    column_list = [
+    def is_visible(self, request: Request) -> bool:
+        return permissions.has(request, permissions.SEE_AUDIT)
+
+    def is_accessible(self, request: Request) -> bool:
+        return permissions.has(request, permissions.SEE_AUDIT)
+
+    column_list = [AdminAction.created_at, AdminAction.admin_email, "what"]
+    column_labels = {
+        AdminAction.created_at: "When (UTC)",
+        AdminAction.admin_email: "Who",
+        "what": "What happened",
+        AdminAction.action: "Kind of change",
+        AdminAction.model: "Kind of record",
+        AdminAction.row_id: "Record",
+        AdminAction.changes: "Stored values",
+    }
+    column_formatters = {
+        "what": _audit_sentence,
+        AdminAction.admin_email: _audit_who,
+        AdminAction.created_at: _audit_when,
+    }
+    column_details_list = [
         AdminAction.created_at,
         AdminAction.admin_email,
+        "what",
         AdminAction.action,
         AdminAction.model,
         AdminAction.row_id,
         AdminAction.changes,
     ]
-    column_labels = {
-        AdminAction.created_at: "When",
-        AdminAction.admin_email: "Who",
-        AdminAction.action: "Did",
-        AdminAction.model: "To",
-        AdminAction.row_id: "Which",
-        AdminAction.changes: "Set",
-    }
-    column_formatters = {
+    column_formatters_detail = {
+        "what": _audit_sentence,
+        AdminAction.admin_email: _audit_who,
         AdminAction.row_id: _audit_subject,
-        AdminAction.created_at: _to_the_minute("created_at"),
+        AdminAction.created_at: _audit_when,
     }
     column_sortable_list = [AdminAction.created_at, AdminAction.admin_email]
     column_default_sort = (AdminAction.created_at, True)
@@ -1941,7 +2374,7 @@ def mount_admin(app, secret_key, base_url="/admin"):
         title="Visdom Dev staff",
         favicon_url=_favicon_data_uri(),
         templates_dir=os.path.join(os.path.dirname(__file__), "templates"),
-        authentication_backend=StaffAuth(secret_key=secret_key),
+        authentication_backend=StaffAuth(secret_key=secret_key, path=base_url),
         audit_backend=StaffAuditBackend(SessionLocal, SESSION_KEY, EMAIL_KEY),
     )
     admin.templates.env.globals["overview_cards"] = overview_cards
@@ -1967,6 +2400,8 @@ def mount_admin(app, secret_key, base_url="/admin"):
 
     for view in VIEWS:
         admin.add_view(view)
+    admin.add_view(AccountTrashView)
+    admin.add_view(PermissionsView)
     admin.add_view(PlanMovesView)
     admin.add_view(LimitBypassView)
     admin.add_view(JanitorView)

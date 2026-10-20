@@ -56,6 +56,9 @@ class Plan(Base):
     limits = Column(JSON, nullable=False, default=dict)
     features = Column(JSON, nullable=False, default=list)
     retention_days = Column(Integer, nullable=True)
+    stripe_price_id = Column(String, nullable=True)
+
+    __table_args__ = (UniqueConstraint("stripe_price_id", name="uq_plans_stripe_price_id"),)
 
 
 class User(Base):
@@ -74,6 +77,8 @@ class User(Base):
     last_login_at = Column(DateTime(timezone=True), nullable=True)
     deletion_requested_at = Column(DateTime(timezone=True), nullable=True)
     bypass_limits = Column(Boolean, default=False, nullable=False, server_default="false")
+    trashed_at = Column(DateTime(timezone=True), nullable=True)
+    trashed_by = Column(String, nullable=True)
 
     __table_args__ = (
         Index("ix_users_username_lower", func.lower(username), unique=True),
@@ -81,6 +86,22 @@ class User(Base):
 
     api_keys = relationship("APIKey", back_populates="owner", cascade="all, delete-orphan")
     memberships = relationship("Membership", back_populates="user", cascade="all, delete-orphan")
+    subscriptions = relationship("Subscription", cascade="all, delete-orphan")
+
+
+class Subscription(Base):
+    __tablename__ = "subscriptions"
+
+    id = Column(String, primary_key=True)
+    user_id = Column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    plan_id = Column(String, ForeignKey("plans.id"), nullable=True)
+    price_id = Column(String, nullable=True)
+    status = Column(String, nullable=False)
+    current_period_end = Column(DateTime(timezone=True), nullable=True)
+    ends_at = Column(DateTime(timezone=True), nullable=True)
+    updated_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
 
 
 class APIKey(Base):
@@ -205,6 +226,25 @@ class AdminUser(Base):
     is_active = Column(Boolean, default=True, nullable=False, server_default="true")
     created_at = Column(DateTime(timezone=True), default=utcnow)
     last_login_at = Column(DateTime(timezone=True), nullable=True)
+
+
+class StaffGrant(Base):
+    """One thing a superadmin has allowed admins to do.
+
+    Either ``role`` is set, and every staff account with that role holds the
+    permission, or ``admin_user_id`` is set and one account does.
+    """
+
+    __tablename__ = "staff_grants"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    permission = Column(String, nullable=False, index=True)
+    role = Column(String, nullable=True)
+    admin_user_id = Column(
+        UUID(as_uuid=True), ForeignKey("admin_users.id", ondelete="CASCADE"), nullable=True
+    )
+    granted_by = Column(String, nullable=True)
+    granted_at = Column(DateTime(timezone=True), nullable=True)
 
 
 class WorkspaceUsageHour(Base):

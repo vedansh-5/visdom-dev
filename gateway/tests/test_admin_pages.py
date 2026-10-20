@@ -29,6 +29,8 @@ PAGES = [
     ("/admin/admin-user/list", "staff accounts"),
     ("/admin/admin-action/list", "the audit trail"),
     ("/admin/janitor", "the cleanup page"),
+    ("/admin/account-trash", "the account trash"),
+    ("/admin/permissions", "the permissions page"),
     ("/admin/limit-bypass", "the limit bypass page"),
 ]
 
@@ -167,7 +169,79 @@ def test_the_audit_trail_still_renders_once_the_row_is_gone(admin_client):
 
     trail = admin_client.get("/admin/admin-action/list", follow_redirects=False)
     assert trail.status_code == 200
-    assert "long-gone (purged)" in trail.text
+    assert "Deleted workspace long-gone for good, from the trash." in trail.text
+
+
+def test_an_edit_records_only_what_changed_and_reads_as_a_sentence(admin_client):
+    from app.models import AdminAction
+
+    db = admin_client.staff_db
+    user = _account(db, email="audited-edit@example.com")
+
+    saved = admin_client.post(
+        f"/admin/user/edit/{user.id}", data=_user_form(user, tier="pro"), follow_redirects=False
+    )
+    assert saved.status_code in (302, 303), saved.text
+
+    entry = db.query(AdminAction).filter(AdminAction.row_id == str(user.id)).one()
+    assert entry.changes == {"tier": "pro", "was": {"tier": "free"}}
+    assert entry.admin_email == "staff@example.com"
+
+    trail = admin_client.get("/admin/admin-action/list").text
+    assert "Moved account audited-edit@example.com from the free plan to pro." in trail
+    assert "&#34;tier&#34;" not in trail and '"tier"' not in trail
+
+
+def test_an_edit_that_changes_nothing_is_not_recorded(admin_client):
+    from app.models import AdminAction
+
+    db = admin_client.staff_db
+    user = _account(db, email="untouched-edit@example.com")
+
+    admin_client.post(f"/admin/user/edit/{user.id}", data=_user_form(user), follow_redirects=False)
+
+    assert db.query(AdminAction).filter(AdminAction.row_id == str(user.id)).count() == 0
+
+
+def test_an_entry_with_no_staff_member_says_automatic(admin_client):
+    from app.models import AdminAction
+
+    db = admin_client.staff_db
+    db.add(
+        AdminAction(
+            id=uuid.uuid4(),
+            action="update",
+            model="APIKey",
+            row_id=str(uuid.uuid4()),
+            changes={"is_active": False, "revoked_from": "notice period ended"},
+        )
+    )
+    db.commit()
+
+    trail = admin_client.get("/admin/admin-action/list").text
+    assert "automatic" in trail
+    assert "(notice period ended)" in trail
+
+
+@pytest.mark.parametrize("role", ["admin", "support"])
+def test_only_a_superadmin_opens_the_audit_trail(admin_client, role):
+    db = admin_client.staff_db
+    db.add(
+        AdminUser(
+            id=uuid.uuid4(),
+            email=f"{role}-audit@example.com",
+            password_hash=get_password_hash("their-staff-password"),
+            role=role,
+            is_active=True,
+        )
+    )
+    db.commit()
+    admin_client.post(
+        "/admin/login", data={"username": f"{role}-audit@example.com", "password": "their-staff-password"}
+    )
+
+    assert admin_client.get("/admin/admin-action/list", follow_redirects=False).status_code == 403
+    assert "Audit trail" not in admin_client.get("/admin/").text
 
 
 def test_the_workspace_page_reports_the_work_a_workspace_caused(admin_client, monkeypatch):
@@ -991,6 +1065,141 @@ def test_moving_to_the_same_plan_changes_nothing(admin_client):
     assert "notice_kind=info" in done.headers["location"]
 
 
+def _pick(admin_client, to_plan, accounts, query=""):
+    form = {"intent": "move_picked", "to_plan": to_plan, "row_ids": [str(a.id) for a in accounts]}
+    return admin_client.post(f"/admin/plan-moves{query}", data=form, follow_redirects=False)
+
+
+def test_ticked_accounts_move_together_whatever_plan_they_were_on(admin_client):
+    from app.models import AdminAction, User
+
+    db = admin_client.staff_db
+    on_free = _account(db, email="picked-free@example.com")
+    on_enterprise = _account(db, email="picked-enterprise@example.com")
+    on_enterprise.tier = "enterprise"
+    already = _account(db, email="picked-already@example.com")
+    already.tier = "pro"
+    left_alone = _account(db, email="not-picked@example.com")
+    db.commit()
+
+    done = _pick(admin_client, "pro", [on_free, on_enterprise, already])
+    assert "notice_kind=success" in done.headers["location"]
+    assert "Moved+2+accounts+to+pro" in done.headers["location"]
+    assert "1+was+already+on+it" in done.headers["location"]
+
+    db.expire_all()
+    assert {db.get(User, a.id).tier for a in (on_free, on_enterprise, already)} == {"pro"}
+    assert db.get(User, left_alone.id).tier == "free"
+    moved_from = {
+        entry.row_id: entry.changes["moved_from"]
+        for entry in db.query(AdminAction).filter(AdminAction.model == "User")
+    }
+    assert moved_from == {str(on_free.id): "free", str(on_enterprise.id): "enterprise"}
+
+
+def test_the_account_list_can_be_searched_and_filtered_by_plan(admin_client):
+    db = admin_client.staff_db
+    _account(db, email="alpha.search@example.com")
+    paid = _account(db, email="beta.search@example.com")
+    paid.tier = "pro"
+    db.commit()
+
+    everyone = admin_client.get("/admin/plan-moves").text
+    assert "alpha.search@example.com" in everyone and "beta.search@example.com" in everyone
+
+    by_name = admin_client.get("/admin/plan-moves?q=ALPHA.search").text
+    assert "alpha.search@example.com" in by_name
+    assert "beta.search@example.com" not in by_name
+
+    by_plan = admin_client.get("/admin/plan-moves?plan=pro").text
+    assert "beta.search@example.com" in by_plan
+    assert "alpha.search@example.com" not in by_plan
+
+    nobody = admin_client.get("/admin/plan-moves?q=no-such-account").text
+    assert "No account matches that." in nobody
+
+
+def test_a_search_treats_percent_and_underscore_as_plain_text(admin_client):
+    db = admin_client.staff_db
+    _account(db, email="plain@example.com")
+
+    assert "plain@example.com" not in admin_client.get("/admin/plan-moves?q=%25").text
+    assert "plain@example.com" not in admin_client.get("/admin/plan-moves?q=pl_in").text
+
+
+def test_moving_with_nothing_ticked_changes_nothing(admin_client):
+    from app.models import AdminAction, User
+
+    db = admin_client.staff_db
+    user = _account(db, email="unticked@example.com")
+
+    done = _pick(admin_client, "pro", [])
+    assert "notice_kind=info" in done.headers["location"]
+
+    db.expire_all()
+    assert db.get(User, user.id).tier == "free"
+    assert db.query(AdminAction).count() == 0
+
+
+def test_ticked_accounts_cannot_go_onto_an_archived_plan(admin_client):
+    from app.models import Plan, User
+
+    db = admin_client.staff_db
+    user = _account(db, email="not-onto-retired@example.com")
+    db.add(
+        Plan(
+            id="retired",
+            name="Retired",
+            price=0,
+            sort_order=9,
+            is_public=False,
+            archived_at=utcnow(),
+            limits={"workspaces": 1, "members": 1, "api_keys": 1, "storage_mb": 1, "workspace_storage_mb": 1},
+            features=[],
+        )
+    )
+    db.commit()
+
+    done = _pick(admin_client, "retired", [user])
+    assert "notice_kind=error" in done.headers["location"]
+    db.expire_all()
+    assert db.get(User, user.id).tier == "free"
+
+
+def test_the_search_is_kept_after_a_move(admin_client):
+    db = admin_client.staff_db
+    user = _account(db, email="kept.filter@example.com")
+
+    done = _pick(admin_client, "pro", [user], query="?q=kept.filter&plan=free")
+    assert "q=kept.filter" in done.headers["location"]
+    assert "plan=free" in done.headers["location"]
+
+
+def test_support_cannot_move_ticked_accounts(admin_client):
+    from app.models import User
+
+    db = admin_client.staff_db
+    user = _account(db, email="support-cannot-pick@example.com")
+    db.add(
+        AdminUser(
+            id=uuid.uuid4(),
+            email="support-picks@example.com",
+            password_hash=get_password_hash("supportpassword"),
+            role="support",
+            is_active=True,
+        )
+    )
+    db.commit()
+    admin_client.post(
+        "/admin/login",
+        data={"username": "support-picks@example.com", "password": "supportpassword"},
+    )
+
+    assert _pick(admin_client, "pro", [user]).status_code == 403
+    db.expire_all()
+    assert db.get(User, user.id).tier == "free"
+
+
 def test_nobody_can_be_moved_onto_an_archived_plan(admin_client):
     from app.models import Plan, User
 
@@ -1051,21 +1260,31 @@ def test_support_cannot_reach_the_plan_moves_page(admin_client):
     assert db.get(User, user.id).tier == "free"
 
 
-def _plan_form(
-    plan_id="team",
-    limits='{"workspaces": 3, "members": 5, "api_keys": 4, "storage_mb": 2048, "workspace_storage_mb": 1024}',
-    **extra,
-):
+TEAM_LIMITS = {
+    "workspaces": 3,
+    "members": 5,
+    "api_keys": 4,
+    "storage_mb": 2048,
+    "workspace_storage_mb": 1024,
+}
+
+
+def _limit_boxes(limits):
+    """The plan form's limit inputs, an empty box standing for unlimited."""
+    return {f"limits-{key}": "" if value is None else str(value) for key, value in limits.items()}
+
+
+def _plan_form(plan_id="team", limits=None, **extra):
     form = {
         "id": plan_id,
         "name": "Team",
         "price": "12",
         "sort_order": "5",
         "is_public": "y",
-        "limits": limits,
-        "features": '["3 workspaces"]',
+        "features": "3 workspaces",
         "retention_days": "30",
     }
+    form.update(_limit_boxes(TEAM_LIMITS if limits is None else limits))
     form.update(extra)
     return form
 
@@ -1078,14 +1297,71 @@ def test_a_superadmin_can_add_a_plan(admin_client):
 
     admin_client.staff_db.expire_all()
     plan = admin_client.staff_db.get(Plan, "team")
-    assert plan.limits == {
-        "workspaces": 3,
-        "members": 5,
-        "api_keys": 4,
-        "storage_mb": 2048,
-        "workspace_storage_mb": 1024,
-    }
+    assert plan.limits == TEAM_LIMITS
     assert plan.features == ["3 workspaces"]
+
+
+def test_features_are_typed_one_to_a_line(admin_client):
+    from app.models import Plan
+
+    typed = "5 workspaces\n\n  Priority support  \r\nShared links\n"
+    made = admin_client.post(
+        "/admin/plan/create", data=_plan_form("lined", features=typed), follow_redirects=False
+    )
+    assert made.status_code in (302, 303), made.text
+
+    admin_client.staff_db.expire_all()
+    assert admin_client.staff_db.get(Plan, "lined").features == [
+        "5 workspaces",
+        "Priority support",
+        "Shared links",
+    ]
+    page = admin_client.get("/admin/plan/edit/lined").text
+    assert "5 workspaces\nPriority support\nShared links" in page.replace("\r\n", "\n")
+    assert "[&#34;" not in page and '["5' not in page
+
+
+def test_an_empty_limit_box_means_unlimited(admin_client):
+    from app.models import Plan
+
+    limits = dict(TEAM_LIMITS, members=None, storage_mb=None)
+    made = admin_client.post(
+        "/admin/plan/create", data=_plan_form("roomy", limits=limits), follow_redirects=False
+    )
+    assert made.status_code in (302, 303), made.text
+
+    admin_client.staff_db.expire_all()
+    assert admin_client.staff_db.get(Plan, "roomy").limits == limits
+
+
+@pytest.mark.parametrize("typed", ["three", "-1", "1.5", "1e3"])
+def test_a_limit_that_is_not_a_whole_number_is_refused(admin_client, typed):
+    from app.models import Plan
+
+    form = _plan_form("typo")
+    form["limits-workspaces"] = typed
+    refused = admin_client.post("/admin/plan/create", data=form, follow_redirects=False)
+
+    assert refused.status_code not in (302, 303)
+    assert "Workspaces must be a whole number" in refused.text
+    assert 'class="ap-limits is-invalid"' in refused.text
+    assert f'value="{typed}"' in refused.text
+    admin_client.staff_db.expire_all()
+    assert admin_client.staff_db.get(Plan, "typo") is None
+
+
+def test_the_plan_form_shows_a_box_for_each_limit(admin_client):
+    from app import billing
+
+    page = admin_client.get("/admin/plan/edit/free").text
+
+    for key in billing.LIMIT_KEYS:
+        assert f'name="limits-{key}"' in page
+    assert 'name="limits-workspaces" value="1"' in page
+    assert 'name="limits"' not in page
+
+    unlimited = admin_client.get("/admin/plan/edit/enterprise").text
+    assert 'name="limits-workspaces" value=""' in unlimited
 
 
 def test_a_plan_with_a_missing_limit_is_refused(admin_client):
@@ -1093,7 +1369,7 @@ def test_a_plan_with_a_missing_limit_is_refused(admin_client):
 
     refused = admin_client.post(
         "/admin/plan/create",
-        data=_plan_form("gappy", limits='{"workspaces": 3, "members": 5}'),
+        data=_plan_form("gappy", limits={"workspaces": 3, "members": 5}),
         follow_redirects=False,
     )
     assert refused.status_code not in (302, 303)
@@ -1123,18 +1399,25 @@ def test_editing_a_plan_changes_its_limits_but_never_its_id(admin_client):
             "price": "29",
             "sort_order": "1",
             "is_public": "y",
-            "limits": (
-                '{"workspaces": 15, "members": null, "api_keys": 20, '
-                '"storage_mb": 10240, "workspace_storage_mb": 5120}'
-            ),
-            "features": "[]",
+            "features": "",
             "retention_days": "90",
+            **_limit_boxes(
+                {
+                    "workspaces": 15,
+                    "members": None,
+                    "api_keys": 20,
+                    "storage_mb": 10240,
+                    "workspace_storage_mb": 5120,
+                }
+            ),
         },
         follow_redirects=False,
     )
     admin_client.staff_db.expire_all()
     assert admin_client.staff_db.get(Plan, "renamed") is None
-    assert admin_client.staff_db.get(Plan, "pro").limits["workspaces"] == 15
+    changed = admin_client.staff_db.get(Plan, "pro").limits
+    assert changed["workspaces"] == 15
+    assert changed["members"] is None
 
 
 def test_the_plan_dropdown_marks_hidden_and_archived_plans(admin_client):
@@ -1549,6 +1832,282 @@ def test_using_a_key_after_its_notice_cancels_the_notice():
     )
     assert janitor.notice_is_current(key) is False
     assert janitor.is_due(key, now) is False
+
+
+def _trash_post(admin_client, intent, accounts, query=""):
+    form = {"intent": intent, "row_ids": [str(a.id) for a in accounts]}
+    return admin_client.post(f"/admin/account-trash{query}", data=form, follow_redirects=False)
+
+
+def test_trashing_locks_an_account_out_and_deletes_nothing(admin_client):
+    from app.models import AdminAction, User, Workspace
+
+    db = admin_client.staff_db
+    user = _account(db, email="to-the-trash@example.com")
+    workspace = _workspace(db, "trashed-owner-lab")
+    workspace.created_by = user.id
+    before = user.token_version or 0
+    db.commit()
+
+    done = _trash_post(admin_client, "trash", [user])
+    assert "notice_kind=success" in done.headers["location"]
+
+    db.expire_all()
+    trashed = db.get(User, user.id)
+    assert trashed.trashed_at is not None
+    assert trashed.trashed_by == "staff@example.com"
+    assert trashed.is_active is False
+    assert trashed.token_version == before + 1
+    assert db.get(Workspace, workspace.id) is not None
+    entry = db.query(AdminAction).filter(AdminAction.row_id == str(user.id)).one()
+    assert entry.changes == {"trashed": True, "email": "to-the-trash@example.com"}
+
+    page = admin_client.get("/admin/account-trash").text
+    assert page.count("to-the-trash@example.com") >= 1
+    assert "1 in the trash" in page
+
+
+def test_restoring_puts_an_account_back(admin_client):
+    from app.models import User
+
+    db = admin_client.staff_db
+    user = _account(db, email="back-again@example.com")
+    _trash_post(admin_client, "trash", [user])
+
+    done = _trash_post(admin_client, "restore", [user])
+    assert "notice_kind=success" in done.headers["location"]
+
+    db.expire_all()
+    back = db.get(User, user.id)
+    assert back.trashed_at is None and back.trashed_by is None
+    assert back.is_active is True
+    assert "The trash is empty." in admin_client.get("/admin/account-trash").text
+
+
+def test_an_account_can_only_be_deleted_from_the_trash(admin_client):
+    from app.models import User
+
+    db = admin_client.staff_db
+    user = _account(db, email="not-trashed-yet@example.com")
+
+    done = _trash_post(admin_client, "delete", [user])
+    assert "notice_kind=error" in done.headers["location"]
+    db.expire_all()
+    assert db.get(User, user.id) is not None
+
+
+def test_deleting_from_the_trash_removes_the_account_and_is_recorded(admin_client, monkeypatch):
+    from app import account_deletion
+    from app.models import AdminAction, User
+
+    monkeypatch.setattr(account_deletion, "drop_workspace", lambda workspace_id: {"bytes": 0})
+    db = admin_client.staff_db
+    user = _account(db, email="gone-for-good@example.com")
+    user_id = user.id
+    _trash_post(admin_client, "trash", [user])
+
+    done = _trash_post(admin_client, "delete", [user])
+    assert "Deleted+1+account+for+good" in done.headers["location"]
+
+    db.expire_all()
+    assert db.get(User, user_id) is None
+    entry = (
+        db.query(AdminAction)
+        .filter(AdminAction.row_id == str(user_id), AdminAction.action == "delete")
+        .one()
+    )
+    assert entry.admin_email == "staff@example.com"
+    assert entry.changes["email"] == "gone-for-good@example.com"
+    assert entry.changes["reason"] == "deleted from the trash by staff"
+
+
+def test_an_account_that_owns_a_shared_workspace_is_kept(admin_client):
+    from app.models import Membership, User
+
+    db = admin_client.staff_db
+    owner = _account(db, email="owner-of-shared@example.com")
+    member = _account(db, email="member-of-shared@example.com")
+    workspace = _workspace(db, "shared-lab")
+    workspace.created_by = owner.id
+    db.add(Membership(user_id=owner.id, workspace_id=workspace.id, role="admin", status="active"))
+    db.add(Membership(user_id=member.id, workspace_id=workspace.id, role="member", status="active"))
+    db.commit()
+    _trash_post(admin_client, "trash", [owner])
+
+    page = admin_client.get("/admin/account-trash").text
+    assert "Cannot be deleted yet: it owns shared-lab" in page
+
+    done = _trash_post(admin_client, "delete", [owner])
+    assert "notice_kind=error" in done.headers["location"]
+    assert "still+owns+shared-lab" in done.headers["location"]
+    db.expire_all()
+    assert db.get(User, owner.id) is not None
+
+
+def test_a_trashed_account_cannot_be_switched_back_on_from_its_form(admin_client):
+    from app.models import User
+
+    db = admin_client.staff_db
+    user = _account(db, email="form-cannot-revive@example.com")
+    _trash_post(admin_client, "trash", [user])
+
+    refused = admin_client.post(
+        f"/admin/user/edit/{user.id}", data=_user_form(user), follow_redirects=False
+    )
+    assert refused.status_code not in (302, 303)
+    db.expire_all()
+    assert db.get(User, user.id).is_active is False
+
+
+def test_the_trash_list_can_be_searched(admin_client):
+    db = admin_client.staff_db
+    _account(db, email="needle.trash@example.com")
+    _account(db, email="haystack.trash@example.com")
+
+    found = admin_client.get("/admin/account-trash?q=NEEDLE").text
+    assert "needle.trash@example.com" in found
+    assert "haystack.trash@example.com" not in found
+
+
+@pytest.mark.parametrize("role", ["admin", "support"])
+def test_only_a_superadmin_reaches_the_account_trash(admin_client, role):
+    from app.models import User
+
+    db = admin_client.staff_db
+    user = _account(db, email="not-theirs-to-trash@example.com")
+    db.add(
+        AdminUser(
+            id=uuid.uuid4(),
+            email=f"{role}-trash@example.com",
+            password_hash=get_password_hash("their-staff-password"),
+            role=role,
+            is_active=True,
+        )
+    )
+    db.commit()
+    admin_client.post(
+        "/admin/login", data={"username": f"{role}-trash@example.com", "password": "their-staff-password"}
+    )
+
+    assert admin_client.get("/admin/account-trash").status_code == 403
+    assert _trash_post(admin_client, "trash", [user]).status_code == 403
+    assert "Account trash" not in admin_client.get("/admin/").text
+    db.expire_all()
+    assert db.get(User, user.id).trashed_at is None
+
+
+def _staff(db, email, role):
+    member = AdminUser(
+        id=uuid.uuid4(),
+        email=email,
+        password_hash=get_password_hash("their-staff-password"),
+        role=role,
+        is_active=True,
+    )
+    db.add(member)
+    db.commit()
+    return member
+
+
+def _sign_in(admin_client, email, password="their-staff-password"):
+    admin_client.post("/admin/login", data={"username": email, "password": password})
+
+
+def _grant(admin_client, group=(), single=()):
+    form = {"group": list(group), "single": [f"{permission}|{member.id}" for permission, member in single]}
+    return admin_client.post("/admin/permissions", data=form, follow_redirects=False)
+
+
+def test_a_grant_to_every_admin_opens_the_audit_trail_to_them(admin_client):
+    db = admin_client.staff_db
+    _staff(db, "group-admin@example.com", "admin")
+
+    saved = _grant(admin_client, group=["see_audit"])
+    assert "Saved+1+change" in saved.headers["location"]
+
+    _sign_in(admin_client, "group-admin@example.com")
+    assert admin_client.get("/admin/admin-action/list").status_code == 200
+    assert "Gave every admin permission to see the audit trail." in admin_client.get(
+        "/admin/admin-action/list"
+    ).text
+    assert admin_client.get("/admin/account-trash").status_code == 403
+    assert admin_client.get("/admin/permissions").status_code == 403
+
+
+def test_a_grant_to_one_admin_does_not_reach_the_others(admin_client):
+    db = admin_client.staff_db
+    chosen = _staff(db, "chosen-admin@example.com", "admin")
+    _staff(db, "other-admin@example.com", "admin")
+
+    _grant(admin_client, single=[("trash_accounts", chosen)])
+
+    _sign_in(admin_client, "chosen-admin@example.com")
+    assert admin_client.get("/admin/account-trash").status_code == 200
+    _sign_in(admin_client, "other-admin@example.com")
+    assert admin_client.get("/admin/account-trash").status_code == 403
+
+
+def test_trashing_and_deleting_are_granted_apart(admin_client):
+    from app.models import User
+
+    db = admin_client.staff_db
+    member = _staff(db, "trasher-admin@example.com", "admin")
+    user = _account(db, email="half-granted@example.com")
+    _grant(admin_client, single=[("trash_accounts", member)])
+    _sign_in(admin_client, "trasher-admin@example.com")
+
+    assert "notice_kind=success" in _trash_post(admin_client, "trash", [user]).headers["location"]
+    refused = _trash_post(admin_client, "delete", [user])
+    assert "notice_kind=error" in refused.headers["location"]
+    db.expire_all()
+    assert db.get(User, user.id) is not None
+
+
+def test_taking_a_grant_back_closes_the_door_again(admin_client):
+    db = admin_client.staff_db
+    _staff(db, "briefly-admin@example.com", "admin")
+    _grant(admin_client, group=["see_audit"])
+
+    taken = _grant(admin_client)
+    assert "Saved+1+change" in taken.headers["location"]
+
+    trail = admin_client.get("/admin/admin-action/list").text
+    assert "Took away from every admin the permission to see the audit trail." in trail
+    _sign_in(admin_client, "briefly-admin@example.com")
+    assert admin_client.get("/admin/admin-action/list", follow_redirects=False).status_code == 403
+
+
+def test_support_cannot_be_given_anything(admin_client):
+    db = admin_client.staff_db
+    helper = _staff(db, "helper-support@example.com", "support")
+
+    _grant(admin_client, group=["see_audit"], single=[("trash_accounts", helper)])
+
+    page = admin_client.get("/admin/permissions").text
+    assert "helper-support@example.com" not in page
+    _sign_in(admin_client, "helper-support@example.com")
+    assert admin_client.get("/admin/admin-action/list", follow_redirects=False).status_code == 403
+    assert admin_client.get("/admin/account-trash").status_code == 403
+
+
+def test_saving_the_same_permissions_changes_nothing(admin_client):
+    from app.models import AdminAction
+
+    db = admin_client.staff_db
+    _staff(db, "steady-admin@example.com", "admin")
+    _grant(admin_client, group=["see_audit"])
+    before = db.query(AdminAction).count()
+
+    again = _grant(admin_client, group=["see_audit"])
+    assert "notice_kind=info" in again.headers["location"]
+    assert db.query(AdminAction).count() == before
+
+
+def test_an_unknown_permission_is_ignored(admin_client):
+    from app.models import StaffGrant
+
+    _grant(admin_client, group=["become_superadmin"])
+    assert admin_client.staff_db.query(StaffGrant).count() == 0
 
 
 def _bypass_post(admin_client, **form):

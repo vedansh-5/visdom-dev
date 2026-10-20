@@ -1,7 +1,7 @@
 """limit bypass
 
 Revision ID: a3e8d5c7b214
-Revises: f2d9b6a1c047
+Revises: d2b7e9c41f05
 Create Date: 2026-10-04
 
 """
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 
 
 revision: str = 'a3e8d5c7b214'
-down_revision: Union[str, Sequence[str], None] = 'f2d9b6a1c047'
+down_revision: Union[str, Sequence[str], None] = 'd2b7e9c41f05'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

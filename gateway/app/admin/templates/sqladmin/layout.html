@@ -89,6 +89,24 @@
     text-decoration: none;
   }
 
+  .ap-limits {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 12px 16px;
+  }
+
+  .ap-limit {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin: 0;
+  }
+
+  .ap-limit-name {
+    font-size: 13px;
+    color: var(--ap-ink-soft);
+  }
+
   .ap-brand-mark {
     width: 22px;
     height: 22px;
@@ -913,8 +931,73 @@
       const all = event.target.closest("[data-select-all]");
       if (!all) return;
       const selector = `input[name="${CSS.escape(all.dataset.selectAll)}"]`;
-      for (const box of document.querySelectorAll(selector)) box.checked = all.checked;
+      for (const box of (all.closest("form") || document).querySelectorAll(selector)) {
+        const row = box.closest("tr");
+        if (!row || !row.hidden) box.checked = all.checked;
+      }
+      countTicked();
     });
+
+    const countTicked = () => {
+      for (const label of document.querySelectorAll("[data-ticked-count]")) {
+        const form = label.closest("form");
+        const ticked = form ? form.querySelectorAll('input[name="row_ids"]:checked').length : 0;
+        label.textContent = ticked ? `${ticked} ticked` : "";
+      }
+    };
+
+    document.addEventListener("change", (event) => {
+      if (event.target.matches('input[name="row_ids"]')) countTicked();
+    });
+
+    const ROW_BOX = 'td:first-child input[type="checkbox"]';
+    let lastTicked = null;
+
+    document.addEventListener("mousedown", (event) => {
+      if (event.shiftKey && event.target.closest(`tbody ${ROW_BOX}`)) event.preventDefault();
+    });
+
+    document.addEventListener("click", (event) => {
+      const box = event.target.closest(`tbody ${ROW_BOX}`);
+      if (!box) return;
+      const body = box.closest("tbody");
+      if (event.shiftKey && lastTicked && lastTicked !== box && lastTicked.closest("tbody") === body) {
+        const boxes = [...body.querySelectorAll(ROW_BOX)];
+        const from = boxes.indexOf(lastTicked);
+        const to = boxes.indexOf(box);
+        for (const other of boxes.slice(Math.min(from, to), Math.max(from, to) + 1)) {
+          if (!other.closest("tr").hidden) other.checked = box.checked;
+        }
+        countTicked();
+      }
+      lastTicked = box;
+    });
+
+    let liveSearchTimer = null;
+    document.addEventListener("input", (event) => {
+      const field = event.target.closest("[data-live-filter]");
+      if (!field) return;
+      const wanted = field.value.trim().toLowerCase();
+      const card = field.closest(".card") || document;
+      let shown = 0;
+      for (const row of card.querySelectorAll("tr[data-filter-text]")) {
+        row.hidden = wanted !== "" && !row.dataset.filterText.includes(wanted);
+        if (!row.hidden) shown += 1;
+      }
+      const count = card.querySelector("[data-live-count]");
+      if (count) count.textContent = `${shown} shown`;
+      if (field.dataset.truncated === "1") {
+        clearTimeout(liveSearchTimer);
+        liveSearchTimer = setTimeout(() => field.form.requestSubmit(), 500);
+      }
+    });
+
+    for (const field of document.querySelectorAll("[data-live-filter]")) {
+      if (field.value) {
+        field.focus();
+        field.setSelectionRange(field.value.length, field.value.length);
+      }
+    }
 
     const showFlashes = () => {
       const source = document.getElementById("ap-flash");

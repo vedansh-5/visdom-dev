@@ -39,6 +39,10 @@ class Settings(BaseSettings):
     VISDOM_SERVERS: str = ""
     ADMIN_ENVIRONMENT: str = ""
     VISDOM_ACTIVITY_TIMEOUT: float = 1.0
+    VISDOM_INTERNAL_PORT: int = 8098
+    VISDOM_INTERNAL_READ_KEY: str = ""
+    VISDOM_INTERNAL_ADMIN_KEY: str = ""
+    VISDOM_INTERNAL_CA: str = ""
     USAGE_SAMPLE_SECONDS: int = 60
     RETENTION_SWEEP_HOURS: int = 24
     RETENTION_ENFORCE: bool = False
@@ -47,6 +51,9 @@ class Settings(BaseSettings):
     RETENTION_WARN_DAYS: int = 3
     ACCOUNT_DELETION_HOURS: int = 6
     KEY_REVOKE_HOURS: int = 24
+    STRIPE_SECRET_KEY: str = ""
+    STRIPE_PUBLISHABLE_KEY: str = ""
+    STRIPE_WEBHOOK_SECRET: str = ""
 
     model_config = SettingsConfigDict(env_file=".env")
 
