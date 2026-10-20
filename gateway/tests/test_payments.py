@@ -34,6 +34,7 @@ class FakeStripe:
         self.sessions = {}
         self.subscriptions = {}
         self.fail = False
+        self.busy = 0
         self.v1 = type("V1", (), {})()
         self.v1.customers = self._Section(self, "customers")
         self.v1.checkout = self._Section(self, "checkout")
@@ -64,6 +65,9 @@ class FakeStripe:
             raise stripe.APIConnectionError("no network")
         self.calls.append((section, verb, args, options))
         if section == "customers":
+            if self.busy:
+                self.busy -= 1
+                raise stripe.APIError("another in-progress request is using this key", http_status=409)
             return Found(id="cus_test_1")
         if section == "sessions" and verb == "create":
             return Found(id="cs_test_abc", client_secret="cs_test_abc_secret_x")
@@ -189,6 +193,17 @@ def test_checkout_makes_one_customer_and_an_embedded_session(client, make_user, 
     assert created["client_reference_id"] == user["id"]
     assert created["line_items"] == [{"price": "price_pro", "quantity": 1}]
     assert created["return_url"].endswith("/?tab=billing&checkout={CHECKOUT_SESSION_ID}")
+
+
+def test_checkout_waits_for_a_customer_another_request_is_making(client, make_user, fake, db_session, monkeypatch):
+    monkeypatch.setattr(payments, "CUSTOMER_WAIT_SECONDS", 0)
+    user = make_user()
+    fake.busy = 2
+    started = client.post(f"{BILLING}/checkout", json={"tier": "pro"}, headers=user["headers"])
+
+    assert started.status_code == 200
+    assert [call[:2] for call in fake.calls].count(("customers", "create")) == 3
+    assert _account(db_session, user).stripe_customer_id == "cus_test_1"
 
 
 def test_checkout_reports_an_unreachable_provider(client, make_user, fake):

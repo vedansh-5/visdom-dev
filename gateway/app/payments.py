@@ -8,6 +8,7 @@ import datetime
 import functools
 import logging
 import re
+import time
 import uuid
 
 import stripe
@@ -30,6 +31,9 @@ SUBSCRIPTION_EVENTS = {
 
 CHECKOUT_ID = re.compile(r"^cs_(test|live)_[A-Za-z0-9]{1,200}$")
 PRICE_ID = re.compile(r"^price_[A-Za-z0-9]{1,200}$")
+
+CUSTOMER_TRIES = 5
+CUSTOMER_WAIT_SECONDS = 0.5
 
 
 class PaymentsOff(RuntimeError):
@@ -93,15 +97,23 @@ def current(db: Session, user: User) -> Subscription | None:
 def customer_for(db: Session, user: User) -> str:
     if user.stripe_customer_id:
         return user.stripe_customer_id
-    customer = _call(
-        lambda v1: v1.customers.create(
-            params={"email": user.email, "metadata": {"user_id": str(user.id)}},
-            options={"idempotency_key": f"customer-{user.id}"},
-        )
-    )
+    customer = _call(lambda v1: _new_customer(v1, user))
     user.stripe_customer_id = customer.id
     db.commit()
     return customer.id
+
+
+def _new_customer(v1, user: User):
+    for attempt in range(CUSTOMER_TRIES):
+        try:
+            return v1.customers.create(
+                params={"email": user.email, "metadata": {"user_id": str(user.id)}},
+                options={"idempotency_key": f"customer-{user.id}"},
+            )
+        except stripe.APIError as exc:
+            if exc.http_status != 409 or attempt == CUSTOMER_TRIES - 1:
+                raise
+            time.sleep(CUSTOMER_WAIT_SECONDS)
 
 
 def start_checkout(db: Session, user: User, plan: Plan) -> dict:
