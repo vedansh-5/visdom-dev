@@ -29,13 +29,12 @@ _SUPPORT_VISIBLE = {
     "Membership",
     "APIKey",
     "WorkspaceInvite",
-    "SharedLink",
 }
 
 _VISIBLE = {
     SUPPORT: _SUPPORT_VISIBLE,
     ADMIN: _SUPPORT_VISIBLE,
-    SUPERADMIN: _SUPPORT_VISIBLE | {"AdminUser", "Plan", "AdminAction"},
+    SUPERADMIN: _SUPPORT_VISIBLE | {"SharedLink", "AdminUser", "Plan", "AdminAction"},
 }
 
 _CHANGEABLE = {

@@ -19,11 +19,14 @@ import concurrent.futures
 import json
 import logging
 import re
+import socket
+import ssl
 import time
 import urllib.error
 import urllib.request
 
 from app.config import settings
+from app.internal_signing import signed_headers
 
 _SERVER_PATTERN = re.compile(r"server\s+([^\s;]+)")
 
@@ -38,6 +41,38 @@ def instance_addresses() -> list[str]:
     return _SERVER_PATTERN.findall(settings.VISDOM_SERVERS or "")
 
 
+def internal_url(address: str, path: str) -> str:
+    host = address.rsplit(":", 1)[0]
+    return f"https://{host}:{settings.VISDOM_INTERNAL_PORT}{path}"
+
+
+def internal_tls() -> ssl.SSLContext:
+    context = ssl.create_default_context(cafile=settings.VISDOM_INTERNAL_CA or None)
+    if settings.VISDOM_INTERNAL_CA:
+        context.check_hostname = False
+    return context
+
+
+def internal_request(address: str, path: str, key: str, body: bytes | None = None) -> urllib.request.Request:
+    method = "GET" if body is None else "POST"
+    headers = signed_headers(key, method, path, body or b"")
+    if body is not None:
+        headers["Content-Type"] = "application/json"
+    return urllib.request.Request(internal_url(address, path), data=body, headers=headers, method=method)
+
+
+def certificate_days_left(address: str, timeout: float) -> float | None:
+    host = address.rsplit(":", 1)[0]
+    try:
+        with socket.create_connection((host, settings.VISDOM_INTERNAL_PORT), timeout=timeout) as raw:
+            with internal_tls().wrap_socket(raw, server_hostname=host) as tls:
+                not_after = tls.getpeercert()["notAfter"]
+    except (OSError, KeyError, ValueError) as exc:
+        logging.warning("could not read the internal certificate of %s: %s", address, exc)
+        return None
+    return (ssl.cert_time_to_seconds(not_after) - time.time()) / 86400
+
+
 def _ask(address: str, timeout: float) -> tuple[bool, list[dict]]:
     """One instance's answer, and whether it gave one at all.
 
@@ -46,9 +81,9 @@ def _ask(address: str, timeout: float) -> tuple[bool, list[dict]]:
     instance that does not answer is saying nothing at all. A page that cannot
     tell those apart has to call both of them unknown.
     """
-    url = f"http://{address}/vis/_activity"
+    request = internal_request(address, "/vis/_activity", settings.VISDOM_INTERNAL_READ_KEY)
     try:
-        with urllib.request.urlopen(url, timeout=timeout) as response:
+        with urllib.request.urlopen(request, timeout=timeout, context=internal_tls()) as response:
             payload = json.loads(response.read() or b"{}")
     except (urllib.error.URLError, OSError, ValueError) as exc:
         logging.warning("could not read activity from %s: %s", address, exc)
@@ -225,14 +260,9 @@ def evict_workspace(slug: str, reason: str | None = None, timeout: float | None 
 
 def _tell(address: str, body: bytes, timeout: float) -> int:
     """One instance's answer to an eviction, or zero when it did not give one."""
-    request = urllib.request.Request(
-        f"http://{address}/vis/_evict",
-        data=body,
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
+    request = internal_request(address, "/vis/_evict", settings.VISDOM_INTERNAL_ADMIN_KEY, body)
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
+        with urllib.request.urlopen(request, timeout=timeout, context=internal_tls()) as response:
             return int(json.loads(response.read() or b"{}").get("closed", 0))
     except (urllib.error.URLError, OSError, ValueError, TypeError) as exc:
         logging.warning("could not evict %s on %s: %s", body, address, exc)
@@ -278,14 +308,9 @@ def drop_workspace(workspace_id, timeout: float | None = None) -> dict:
 
 
 def _drop_on(address: str, body: bytes, timeout: float) -> dict | None:
-    request = urllib.request.Request(
-        f"http://{address}/vis/_drop",
-        data=body,
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
+    request = internal_request(address, "/vis/_drop", settings.VISDOM_INTERNAL_ADMIN_KEY, body)
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
+        with urllib.request.urlopen(request, timeout=timeout, context=internal_tls()) as response:
             return json.loads(response.read() or b"{}")
     except (urllib.error.URLError, OSError, ValueError, TypeError) as exc:
         logging.warning("could not drop %s on %s: %s", body, address, exc)
