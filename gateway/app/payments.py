@@ -269,6 +269,18 @@ def settle_tier(db: Session, user: User) -> None:
         user.tier = DEFAULT_TIER
 
 
+def has_subscribed(db: Session, user: User) -> bool:
+    return db.query(Subscription.id).filter(Subscription.user_id == user.id).first() is not None
+
+
+def resume_renewing(db: Session, user: User) -> Subscription | None:
+    row = current(db, user)
+    if row is None or row.ends_at is None:
+        return None
+    found = _call(lambda v1: v1.subscriptions.update(row.id, params={"cancel_at_period_end": False}))
+    return record(db, _plain(found))
+
+
 def stop_renewing(db: Session, user: User) -> None:
     for row in _open(db, user):
         _call(lambda v1, sid=row.id: v1.subscriptions.update(sid, params={"cancel_at_period_end": True}))

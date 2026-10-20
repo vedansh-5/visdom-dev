@@ -68,7 +68,7 @@ def _billing_state(db: Session, user: User) -> dict:
         "plan_id": live.plan_id if live else None,
         "renews_at": None if live is None or live.ends_at else live.current_period_end,
         "ends_at": live.ends_at if live else None,
-        "can_manage": payments.enabled() and bool(user.stripe_customer_id),
+        "can_manage": payments.enabled() and bool(user.stripe_customer_id) and payments.has_subscribed(db, user),
     }
 
 
@@ -182,12 +182,29 @@ def checkout_status(
     return {"status": session.get("status"), "subscription": _build_subscription(db, current_user)}
 
 
+@router.post("/renewal", response_model=SubscriptionResponse)
+def resume_renewal(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    _require_payments()
+    try:
+        resumed = payments.resume_renewing(db, current_user)
+    except payments.PaymentsDown as exc:
+        raise _unreachable(exc) from exc
+    if resumed is None:
+        raise HTTPException(status_code=409, detail="There is no paid plan set to end.")
+    db.refresh(current_user)
+    return _build_subscription(db, current_user)
+
+
 @router.post("/portal", response_model=PortalLink)
 def open_portal(
     current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
 ):
     _require_payments()
-    if not current_user.stripe_customer_id:
+    if not current_user.stripe_customer_id or not payments.has_subscribed(db, current_user):
         raise HTTPException(status_code=409, detail="There is nothing to manage yet.")
     try:
         return {"url": payments.portal_url(current_user)}

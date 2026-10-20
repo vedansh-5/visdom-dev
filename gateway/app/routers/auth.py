@@ -24,7 +24,7 @@ from app.dependencies import (
     resolve_active_api_key,
     user_for_access_token,
 )
-from app.models import APIKey, Membership, User, WorkspaceInvite, utcnow
+from app.models import APIKey, Membership, Plan, User, WorkspaceInvite, utcnow
 from app.schemas import (
     AccountDeletionRequest,
     DeletionPreview,
@@ -392,7 +392,16 @@ def _preview(db: Session, user: User) -> dict:
             DeletionWorkspace(id=ws.id, name=ws.name, slug=ws.slug)
             for ws in state["leaving_with"]
         ],
+        "renewing_plan": _renewing_plan(db, user),
     }
+
+
+def _renewing_plan(db: Session, user: User) -> str | None:
+    live = payments.current(db, user)
+    if live is None or live.ends_at is not None:
+        return None
+    plan = db.get(Plan, live.plan_id) if live.plan_id else None
+    return plan.name if plan else "paid"
 
 
 @router.get("/me/deletion", response_model=DeletionPreview)

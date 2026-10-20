@@ -86,6 +86,7 @@ class DeletionPreview(BaseModel):
     grace_days: int
     blockers: List[DeletionWorkspace]
     leaving_with: List[DeletionWorkspace]
+    renewing_plan: Optional[str] = None
 
 
 class DeletionScheduled(BaseModel):

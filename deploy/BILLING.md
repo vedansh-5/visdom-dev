@@ -20,9 +20,12 @@ available yet" and only free plans can be picked.
   When the subscription ends, the account goes back to the free plan.
 - **Staff assignments stay.** A plan given from the admin console is left alone
   when an old subscription ends.
-- **Deleting an account.** Asking to delete it stops the renewal. Removing it
-  for good cancels the subscription first. If Stripe cannot be reached, neither
-  step goes ahead.
+- **Deleting an account.** Asking to delete it stops the renewal, and the
+  delete form says so. Signing in before the deadline asks whether to turn the
+  renewal back on. Removing it for good cancels the subscription first. If
+  Stripe cannot be reached, neither step goes ahead.
+- **Manage billing** shows once the account has bought a plan, even one that
+  has since ended, so past invoices stay reachable.
 
 The webhook never trusts the event it is sent: it reads the subscription back
 from Stripe before changing anything.

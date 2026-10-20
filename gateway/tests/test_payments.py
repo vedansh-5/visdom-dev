@@ -395,6 +395,49 @@ def test_the_portal_needs_a_billing_account(client, make_user, fake):
     assert client.post(f"{BILLING}/portal", headers=user["headers"]).status_code == 409
 
 
+def test_manage_billing_needs_a_subscription(client, make_user, fake, db_session):
+    user = make_user()
+    record = _account(db_session, user)
+    record.stripe_customer_id = "cus_test_1"
+    db_session.commit()
+
+    shown = client.get(f"{BILLING}/subscription", headers=user["headers"]).json()
+    assert shown["billing"]["can_manage"] is False
+    assert client.post(f"{BILLING}/portal", headers=user["headers"]).status_code == 409
+
+
+def test_the_deletion_preview_names_a_plan_that_will_stop_renewing(client, make_user, fake, db_session):
+    user = make_user()
+    assert client.get("/api/v1/auth/me/deletion", headers=user["headers"]).json()["renewing_plan"] is None
+    _paying(client, db_session, fake, user)
+    assert client.get("/api/v1/auth/me/deletion", headers=user["headers"]).json()["renewing_plan"] == "Pro"
+
+    fake.subscriptions["sub_1"]["cancel_at_period_end"] = True
+    _send(client, "customer.subscription.updated", {"id": "sub_1"})
+    assert client.get("/api/v1/auth/me/deletion", headers=user["headers"]).json()["renewing_plan"] is None
+
+
+def test_renewal_stopped_by_a_deletion_can_be_turned_back_on(client, make_user, fake, db_session):
+    user = make_user()
+    _paying(client, db_session, fake, user)
+    client.post("/api/v1/auth/me/deletion", json={"password": user["password"]}, headers=user["headers"])
+    signed_in = client.post("/api/v1/auth/login", data={"username": user["email"], "password": user["password"]})
+    assert signed_in.json()["deletion_cancelled"] is True
+    headers = {"Authorization": f"Bearer {signed_in.json()['access_token']}"}
+
+    resumed = client.post(f"{BILLING}/renewal", headers=headers)
+    assert resumed.status_code == 200, resumed.text
+    assert fake.subscriptions["sub_1"]["cancel_at_period_end"] is False
+    assert resumed.json()["billing"]["ends_at"] is None
+    assert resumed.json()["billing"]["renews_at"].startswith("2030-01-01")
+    assert client.post(f"{BILLING}/renewal", headers=headers).status_code == 409
+
+
+def test_renewal_needs_a_paid_plan(client, make_user, fake):
+    user = make_user()
+    assert client.post(f"{BILLING}/renewal", headers=user["headers"]).status_code == 409
+
+
 def test_asking_to_delete_the_account_stops_the_renewal(client, make_user, fake, db_session):
     user = make_user()
     _paying(client, db_session, fake, user)
