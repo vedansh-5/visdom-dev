@@ -15,6 +15,7 @@ import secrets
 import time
 import uuid
 from datetime import datetime, timezone
+from typing import get_args
 from urllib.parse import urlencode
 
 import wtforms
@@ -46,6 +47,7 @@ from app.models import (
     WorkspaceInvite,
     utcnow,
 )
+from app.schemas.workspace import RoleLiteral
 from app.security import get_password_hash, verify_password
 
 SESSION_KEY = "admin_user"
@@ -699,6 +701,8 @@ class MembershipAdmin(ChangeableView, model=Membership):
     category = "Workspaces"
     category_icon = "fa-solid fa-folder"
     form_columns = [Membership.role]
+    form_overrides = {"role": wtforms.SelectField}
+    form_args = {"role": {"choices": [(role, role) for role in get_args(RoleLiteral)]}}
     column_list = [
         Membership.workspace,
         Membership.user,
