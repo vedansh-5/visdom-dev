@@ -86,8 +86,9 @@ def test_only_a_superadmin_may_set_someones_password():
     assert "password_hash" in roles.editable_fields(roles.SUPERADMIN, "User")
 
 
-def test_every_staff_role_may_open_the_cleanup_page():
-    for role in roles.ROLES:
+def test_every_role_but_a_viewer_may_open_the_cleanup_page():
+    assert not roles.can_sweep(roles.VIEWER)
+    for role in (roles.SUPPORT, roles.ADMIN, roles.SUPERADMIN):
         assert roles.can_sweep(role)
 
 
