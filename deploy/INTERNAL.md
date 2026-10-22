@@ -14,7 +14,9 @@ There are two keys. The gateway signs reads (`/_activity`) with
 can never delete anything. Compose hands each key to the instances along with
 its `_PREVIOUS` one. A signature is good for 60 seconds.
 
-Make each key with `openssl rand -hex 32`. To replace one:
+Make each key with `openssl rand -hex 32`. Compose refuses to start without
+them, and the gateway sends nothing until the read key and `internal-ca.pem`
+are in place; `/api/v1/health/components` names what is missing. To replace one:
 
 1. Copy the current key into its `_PREVIOUS` setting and put a new one in its
    place.

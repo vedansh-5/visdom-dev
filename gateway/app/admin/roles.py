@@ -6,9 +6,9 @@
 
 """Who may see and do what in the admin panel.
 
-Three roles, in increasing privilege: support handles the day to day incident,
-admin decides what a customer is entitled to, and superadmin decides who has
-console access at all.
+Four roles, in increasing privilege: viewer only reads, support handles the day
+to day incident, admin decides what a customer is entitled to, and superadmin
+decides who has console access at all.
 
 Reading every user's data is itself a privilege, so the role decides which
 models are visible rather than only which actions are allowed. Visibility,
@@ -17,11 +17,12 @@ change a model is restricted again to the fields it may set. That separation is
 what keeps "suspend an account" from also meaning "edit an account".
 """
 
+VIEWER = "viewer"
 SUPPORT = "support"
 ADMIN = "admin"
 SUPERADMIN = "superadmin"
 
-ROLES = (SUPPORT, ADMIN, SUPERADMIN)
+ROLES = (VIEWER, SUPPORT, ADMIN, SUPERADMIN)
 
 _SUPPORT_VISIBLE = {
     "User",
@@ -32,24 +33,28 @@ _SUPPORT_VISIBLE = {
 }
 
 _VISIBLE = {
+    VIEWER: {"User", "Workspace", "Membership"},
     SUPPORT: _SUPPORT_VISIBLE,
     ADMIN: _SUPPORT_VISIBLE,
     SUPERADMIN: _SUPPORT_VISIBLE | {"SharedLink", "AdminUser", "Plan", "AdminAction"},
 }
 
 _CHANGEABLE = {
+    VIEWER: set(),
     SUPPORT: {"APIKey", "User", "Workspace", "Membership"},
     ADMIN: {"APIKey", "User", "Workspace", "Membership"},
     SUPERADMIN: {"APIKey", "User", "Workspace", "Membership", "AdminUser", "Plan"},
 }
 
 _REMOVABLE = {
+    VIEWER: set(),
     SUPPORT: set(),
     ADMIN: {"Membership", "SharedLink", "WorkspaceInvite"},
     SUPERADMIN: {"Membership", "SharedLink", "WorkspaceInvite"},
 }
 
 _ADDABLE = {
+    VIEWER: set(),
     SUPPORT: set(),
     ADMIN: set(),
     SUPERADMIN: {"AdminUser", "Plan"},

@@ -1,19 +1,25 @@
 # Copyright 2017-present, The Visdom Authors
 """The staff role ladder.
 
-Support handles the day to day incident, admin decides what a customer is
-entitled to, and superadmin decides who has console access at all. These assert
-the boundaries between them rather than the plumbing that enforces them.
+Viewer only reads, support handles the day to day incident, admin decides what
+a customer is entitled to, and superadmin decides who has console access at
+all. These assert the boundaries between them rather than the plumbing that
+enforces them.
 """
 from app.admin import roles
 
 
-def test_there_are_three_roles_in_increasing_privilege():
-    assert roles.ROLES == (roles.SUPPORT, roles.ADMIN, roles.SUPERADMIN)
+def test_there_are_four_roles_in_increasing_privilege():
+    assert roles.ROLES == (roles.VIEWER, roles.SUPPORT, roles.ADMIN, roles.SUPERADMIN)
 
 
-def test_viewer_is_no_longer_a_role():
-    assert not roles.is_valid("viewer")
+def test_a_viewer_only_reads():
+    assert roles.is_valid("viewer")
+    for model in ("User", "Workspace", "Membership"):
+        assert roles.can_see(roles.VIEWER, model)
+        assert not roles.can_change(roles.VIEWER, model)
+        assert not roles.can_remove(roles.VIEWER, model)
+    assert not roles.can_see(roles.VIEWER, "APIKey")
 
 
 def test_only_a_superadmin_sees_staff_accounts():
@@ -80,8 +86,9 @@ def test_only_a_superadmin_may_set_someones_password():
     assert "password_hash" in roles.editable_fields(roles.SUPERADMIN, "User")
 
 
-def test_every_staff_role_may_open_the_cleanup_page():
-    for role in roles.ROLES:
+def test_every_role_but_a_viewer_may_open_the_cleanup_page():
+    assert not roles.can_sweep(roles.VIEWER)
+    for role in (roles.SUPPORT, roles.ADMIN, roles.SUPERADMIN):
         assert roles.can_sweep(role)
 
 

@@ -10,6 +10,7 @@ import datetime
 
 from app import usage_rollup
 from app.models import UsageBaseline, WorkspaceUsageHour
+from app.usage import latest_storage
 
 A = "visdom-1:8097"
 B = "visdom-2:8097"
@@ -188,6 +189,30 @@ def test_the_hour_keeps_its_highest_minute_count(
     assert _rows(db_session)[0].active_minutes == 3
 
 
+def test_minutes_from_before_a_restart_are_kept(
+    client, make_user, make_workspace, db_session
+):
+    ws = make_workspace(make_user())["id"]
+    hour = _epoch_hour(2026, 5, 4, 10)
+    when = datetime.datetime(2026, 5, 4, 10, 30, tzinfo=UTC)
+    _tick(db_session, (A, True, [_entry(ws, hour=hour, mask=0b111)]), when=when)
+    _tick(db_session, (A, True, [_entry(ws, hour=hour, mask=0b11000)]), when=when)
+
+    assert _rows(db_session)[0].active_minutes == 5
+
+
+def test_minutes_from_an_instance_that_stopped_answering_are_kept(
+    client, make_user, make_workspace, db_session
+):
+    ws = make_workspace(make_user())["id"]
+    hour = _epoch_hour(2026, 5, 4, 10)
+    when = datetime.datetime(2026, 5, 4, 10, 30, tzinfo=UTC)
+    _tick(db_session, (A, True, [_entry(ws, hour=hour, mask=0b1111)]), when=when)
+    _tick(db_session, (B, True, [_entry(ws, hour=hour, mask=0b110000)]), when=when)
+
+    assert _rows(db_session)[0].active_minutes == 6
+
+
 def test_stored_bytes_is_the_largest_reading_not_a_sum(
     client, make_user, make_workspace, db_session
 ):
@@ -196,6 +221,18 @@ def test_stored_bytes_is_the_largest_reading_not_a_sum(
     _tick(db_session, (A, True, [_entry(ws, stored=800)]))
 
     assert _rows(db_session)[0].peak_bytes == 900
+
+
+def test_storage_reads_the_latest_reading_within_the_hour(
+    client, make_user, make_workspace, db_session
+):
+    ws = make_workspace(make_user())["id"]
+    _tick(db_session, (A, True, [_entry(ws, stored=900)]))
+    _tick(db_session, (A, True, [_entry(ws, stored=100)]))
+
+    row = _rows(db_session)[0]
+    assert row.peak_bytes == 900
+    assert latest_storage(db_session, [row.workspace_id]) == {row.workspace_id: 100}
 
 
 def test_different_hours_are_different_rows(client, make_user, make_workspace, db_session):
@@ -228,3 +265,61 @@ def test_a_tick_that_reaches_nobody_records_nothing(db_session):
 
     assert usage_rollup.sample_once(db_session, unreachable) == 0
     assert db_session.query(UsageBaseline).count() == 0
+
+
+def test_a_row_with_unreadable_numbers_is_skipped_and_the_rest_still_count(
+    client, make_user, make_workspace, db_session
+):
+    good = make_workspace(make_user())["id"]
+    bad = make_workspace(make_user())["id"]
+    _tick(db_session, (A, True, [_entry(good, writes=1), _entry(bad, writes=1)]))
+    _tick(
+        db_session,
+        (
+            A,
+            True,
+            [
+                _entry(good, writes=6),
+                {**_entry(bad), "writes": "lots"},
+                {**_entry(bad), "bytes": -5},
+                {**_entry(bad), "broadcasts": float("inf")},
+                {**_entry(bad), "active_hour": 10**12, "active_minutes_mask": 1},
+                {**_entry(bad), "active_hour": 5, "active_minutes_mask": 1 << 61},
+                {"workspace_id": ["not", "a", "string"]},
+                "not a row",
+            ],
+        ),
+    )
+
+    rows = _rows(db_session)
+    assert [(str(row.workspace_id), row.writes) for row in rows] == [(good, 5)]
+    baseline = db_session.get(UsageBaseline, {"instance": A, "workspace_id": bad})
+    assert baseline.writes == 1
+
+
+def test_a_reading_keeps_good_numbers_as_numbers():
+    checked = usage_rollup.reading(
+        {"workspace_id": "w", "writes": "7", "bytes": None, "active_hour": 3}
+    )
+    assert checked == {
+        "workspace_id": "w",
+        "writes": 7,
+        "broadcasts": 0,
+        "broadcast_bytes": 0,
+        "bytes": 0,
+        "active_hour": 3,
+        "active_minutes_mask": 0,
+    }
+
+
+def test_a_workspace_emptied_out_drops_to_zero_storage(
+    client, make_user, make_workspace, db_session
+):
+    ws = make_workspace(make_user())["id"]
+    _tick(db_session, (A, True, [_entry(ws, stored=900)]), when=datetime.datetime(2026, 5, 4, 10, tzinfo=UTC))
+    _tick(db_session, (A, True, [_entry(ws, stored=0)]), when=datetime.datetime(2026, 5, 4, 11, tzinfo=UTC))
+    _tick(db_session, (A, True, [_entry(ws, stored=0)]), when=datetime.datetime(2026, 5, 4, 12, tzinfo=UTC))
+
+    workspace_id = _rows(db_session)[0].workspace_id
+    assert latest_storage(db_session, [workspace_id]) == {workspace_id: 0}
+    assert len(_rows(db_session)) == 2

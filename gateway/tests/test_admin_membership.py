@@ -87,6 +87,14 @@ def test_an_admin_can_be_removed_while_another_remains(workspace_with_members):
     remove(workspace_with_members["second"])
 
 
+def test_the_owner_cannot_be_removed_even_with_another_admin(workspace_with_members):
+    with pytest.raises(HTTPException) as refused:
+        remove(workspace_with_members["owner"])
+
+    assert refused.value.status_code == 403
+    assert "owner" in refused.value.detail
+
+
 def test_the_last_admin_cannot_be_removed(db_session, workspace_with_members):
     """The same rule the API applies when a member removes another."""
     db_session.delete(workspace_with_members["second"])
@@ -149,3 +157,15 @@ def test_an_unknown_role_can_do_neither(workspace_with_members):
 
     assert not may_edit("stranger", plain)
     assert not may_remove("stranger", plain)
+
+
+def test_the_last_admin_check_locks_in_the_session_that_saves(monkeypatch, workspace_with_members):
+    from app.admin import panel
+
+    def second_session():
+        raise AssertionError("a lock taken in a second session is gone before the save")
+
+    monkeypatch.setattr(panel, "SessionLocal", second_session)
+
+    change_role(workspace_with_members["second"], "member")
+    remove(workspace_with_members["second"])

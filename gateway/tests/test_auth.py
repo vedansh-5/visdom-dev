@@ -1,5 +1,15 @@
 # Copyright 2017-present, The Visdom Authors
+from datetime import timedelta
+
 from app.config import settings
+from app.security import create_refresh_token
+
+
+def assert_session_was_not_renewed(response):
+    for cookie in response.headers.get_list("set-cookie"):
+        name_value = cookie.split(";", 1)[0]
+        if name_value.startswith(("refresh_token=", "session_token=")):
+            assert name_value.endswith("="), cookie
 
 
 def test_register_user(client):
@@ -78,6 +88,42 @@ def test_refresh_token(client):
     data = refresh_response.json()
     assert "access_token" in data
     assert data["token_type"] == "bearer"
+
+
+def test_refresh_token_after_logout_is_rejected(client, make_user):
+    """Logging out revokes a refresh token even if it is replayed by hand."""
+    make_user(email="refresh-logout@example.com")
+    stolen_refresh_token = client.cookies.get("refresh_token")
+    assert stolen_refresh_token
+
+    logout_response = client.post("/api/v1/auth/logout")
+    assert logout_response.status_code == 200
+    client.cookies.clear()
+
+    refresh_response = client.post(
+        "/api/v1/auth/refresh",
+        headers={"Cookie": f"refresh_token={stolen_refresh_token}"},
+    )
+
+    assert refresh_response.status_code == 401
+    assert_session_was_not_renewed(refresh_response)
+
+
+def test_expired_refresh_token_is_rejected(client, make_user):
+    """An expired refresh cookie cannot renew the session."""
+    user = make_user(email="expired-refresh@example.com")
+    expired_refresh_token = create_refresh_token(
+        {"sub": user["id"], "tv": 0}, expires_delta=timedelta(seconds=-1)
+    )
+    client.cookies.clear()
+    client.cookies.set(
+        "refresh_token", expired_refresh_token, path="/api/v1/auth"
+    )
+
+    refresh_response = client.post("/api/v1/auth/refresh")
+
+    assert refresh_response.status_code == 401
+    assert_session_was_not_renewed(refresh_response)
 
 
 def test_logout_user(client):
@@ -357,3 +403,78 @@ def test_an_api_key_cannot_be_left_without_an_active_flag(client, make_user, db_
     with pytest.raises(IntegrityError):
         db_session.commit()
     db_session.rollback()
+
+
+def test_logout_revokes_both_accounts_when_the_cookies_disagree(client, make_user):
+    make_user(email="first-logout@example.com")
+    first_session = client.cookies.get("session_token")
+    make_user(email="second-logout@example.com")
+    second_session = client.cookies.get("session_token")
+    second_refresh = client.cookies.get("refresh_token")
+    assert first_session and second_session and second_refresh
+    client.cookies.clear()
+
+    mixed = f"refresh_token={second_refresh}; session_token={first_session}"
+    assert client.post("/api/v1/auth/logout", headers={"Cookie": mixed}).status_code == 200
+
+    for token in (first_session, second_session):
+        replayed = client.get(VERIFY, headers={"Cookie": f"session_token={token}"})
+        assert replayed.status_code == 401
+
+
+def test_a_failed_logout_says_so_and_still_clears_the_cookies(
+    client, make_user, db_session, monkeypatch
+):
+    from sqlalchemy.exc import SQLAlchemyError
+
+    make_user(email="unsaved-logout@example.com")
+
+    def refuse():
+        raise SQLAlchemyError("database unavailable")
+
+    monkeypatch.setattr(db_session, "commit", refuse)
+    answer = client.post("/api/v1/auth/logout")
+    monkeypatch.undo()
+
+    assert answer.status_code == 503
+    cleared = answer.headers.get_list("set-cookie")
+    assert any(cookie.startswith("refresh_token=") and "Max-Age=0" in cookie for cookie in cleared)
+    assert any(cookie.startswith("session_token=") and "Max-Age=0" in cookie for cookie in cleared)
+
+
+def test_a_logout_that_cannot_look_the_user_up_still_clears_the_cookies(client, monkeypatch):
+    from sqlalchemy.exc import SQLAlchemyError
+
+    from app.routers import auth
+
+    def refuse(db, request):
+        raise SQLAlchemyError("database unavailable")
+
+    monkeypatch.setattr(auth, "_users_logging_out", refuse)
+    answer = client.post("/api/v1/auth/logout")
+
+    assert answer.status_code == 503
+    cleared = answer.headers.get_list("set-cookie")
+    assert any(cookie.startswith("refresh_token=") for cookie in cleared)
+    assert any(cookie.startswith("session_token=") for cookie in cleared)
+
+
+def test_a_logout_whose_rollback_also_fails_still_clears_the_cookies(
+    client, make_user, db_session, monkeypatch
+):
+    from sqlalchemy.exc import SQLAlchemyError
+
+    make_user(email="no-rollback-logout@example.com")
+
+    def refuse():
+        raise SQLAlchemyError("database unavailable")
+
+    monkeypatch.setattr(db_session, "commit", refuse)
+    monkeypatch.setattr(db_session, "rollback", refuse)
+    answer = client.post("/api/v1/auth/logout")
+    monkeypatch.undo()
+
+    assert answer.status_code == 503
+    cleared = answer.headers.get_list("set-cookie")
+    assert any(cookie.startswith("refresh_token=") for cookie in cleared)
+    assert any(cookie.startswith("session_token=") for cookie in cleared)

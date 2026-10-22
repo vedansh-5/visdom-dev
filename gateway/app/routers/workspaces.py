@@ -41,6 +41,9 @@ from app.schemas.workspace import (
 from app.security import get_password_hash, verify_password
 from app.usage import (
     allowance,
+    hold_account,
+    invites_waiting,
+    invites_waiting_in,
     members_used,
     refuse_if_at_limit,
     refuse_if_full,
@@ -419,6 +422,7 @@ def transfer_ownership(
         )
 
     new_owner = target.user
+    hold_account(db, new_owner)
     tier = new_owner.tier or "free"
     room = allowance(db, new_owner, "workspaces")
     if room is not None and workspaces_used(db, new_owner) >= room:
@@ -435,8 +439,10 @@ def transfer_ownership(
         )
         .count()
     )
+    arriving += invites_waiting_in(db, workspace_id)
     ceiling = allowance(db, new_owner, "members")
-    if ceiling is not None and members_used(db, new_owner) + arriving > ceiling:
+    held = members_used(db, new_owner) + invites_waiting(db, new_owner)
+    if ceiling is not None and held + arriving > ceiling:
         raise HTTPException(
             status_code=status.HTTP_402_PAYMENT_REQUIRED,
             detail=f"{new_owner.email} has no room for this many members on the {tier} plan.",
@@ -475,7 +481,9 @@ def remove_member(
                 detail="Only workspace admins can remove other members.",
             )
 
-    workspace = db.query(Workspace).filter(Workspace.id == workspace_id).first()
+    workspace = (
+        db.query(Workspace).filter(Workspace.id == workspace_id).with_for_update().first()
+    )
     if not workspace:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workspace not found.")
     if workspace.created_by == user_id and not is_self_leave:

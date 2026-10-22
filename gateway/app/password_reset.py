@@ -31,6 +31,7 @@ def _digest(token: str) -> str:
 def issue(db, user: User, now: datetime.datetime | None = None) -> str | None:
     """A new token for ``user``, or None when they have had ``PER_HOUR`` this hour."""
     now = now or utcnow()
+    db.query(User.id).filter(User.id == user.id).with_for_update().first()
     db.query(PasswordReset).filter(PasswordReset.expires_at < now - datetime.timedelta(days=1)).delete(
         synchronize_session=False
     )
@@ -72,7 +73,7 @@ def redeem(db, token: str, password: str, now: datetime.datetime | None = None) 
     reset = db.query(PasswordReset).filter(PasswordReset.token_hash == _digest(token)).first()
     if reset is None:
         return None
-    user = db.get(User, reset.user_id)
+    user = db.query(User).filter(User.id == reset.user_id).with_for_update().populate_existing().first()
     if user is None or not user.is_active:
         return None
     claimed = (

@@ -48,8 +48,9 @@ export const PRIVACY = [
       'Your account details are kept while the account exists.',
       'Plot data is kept for as long as your plan says, counted from when an environment was last written to. The free plan keeps 7 days and the pro plan keeps 90. Older environments are removed automatically.',
       'Backups are kept for 90 days and then deleted, so data can remain in a backup for up to 90 days after you remove it from the service.',
-      'Usage records are kept longer, because they are the record of what a plan was charged for.',
+      'Usage records are kept while the workspace they describe exists, and are deleted with it. Deleting your account deletes your workspaces, so their usage records go too.',
       'Billing records are kept while the account exists and deleted with it. Stripe keeps its own record of payments, as the law requires of a payment provider.',
+      'Server logs are kept in files of a fixed size. The oldest entries are overwritten as new ones arrive, so logs are not kept indefinitely and are not kept per account.',
     ],
   },
   {
@@ -88,10 +89,11 @@ export const COOKIES = [
   {
     heading: 'What we set',
     body: [
-      'Two cookies, both needed to keep you signed in, and nothing else.',
+      'Two cookies for everyone who uses the site, both needed to keep you signed in, and nothing else.',
       'session_token, which proves who you are on each request. It lasts 15 minutes and is renewed while you are using the site.',
       'refresh_token, which is what gets you a new session_token without typing your password again. It lasts 7 days.',
-      'Both are set so that scripts on the page cannot read them, and both are sent only over an encrypted connection.',
+      'Both are set so that scripts on the page cannot read them. visdom.dev only works over an encrypted connection: a request made without one is sent on to the encrypted address, and browsers are told to use only that address from then on.',
+      'Our staff get one more cookie, session, when they sign in to the admin console. It keeps them signed in there and is not set for anyone else.',
     ],
   },
   {

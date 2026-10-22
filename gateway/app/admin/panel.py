@@ -8,18 +8,21 @@
 
 import asyncio
 import base64
+import functools
 import logging
 import os
+import secrets
 import time
 import uuid
 from datetime import datetime, timezone
+from typing import get_args
 from urllib.parse import urlencode
 
 import wtforms
 from sqladmin import Admin, BaseView, ModelView, expose
 from sqladmin.authentication import AuthenticationBackend
 from sqlalchemy import func, or_
-from sqlalchemy.orm import joinedload
+from sqlalchemy.orm import joinedload, object_session
 from starlette.exceptions import HTTPException
 from starlette.requests import Request
 from starlette.responses import RedirectResponse, Response
@@ -44,6 +47,7 @@ from app.models import (
     WorkspaceInvite,
     utcnow,
 )
+from app.schemas.workspace import RoleLiteral
 from app.security import get_password_hash, verify_password
 
 SESSION_KEY = "admin_user"
@@ -53,6 +57,16 @@ EMAIL_KEY = "admin_email"
 MIN_SET_PASSWORD = 12
 
 DANGEROUS_ENVIRONMENTS = ("prod", "production", "live")
+
+
+@functools.lru_cache(maxsize=1)
+def _placeholder_hash():
+    """A hash no password matches, checked when there is no account to check.
+
+    Refusing an unknown email then costs the same as refusing a wrong password,
+    so the time a sign-in takes does not say which emails are staff accounts.
+    """
+    return get_password_hash(secrets.token_urlsafe(32))
 
 
 class StaffAuth(AuthenticationBackend):
@@ -66,10 +80,9 @@ class StaffAuth(AuthenticationBackend):
         db = SessionLocal()
         try:
             admin = db.query(AdminUser).filter(AdminUser.email == email).first()
-            if admin is None or not admin.is_active:
-                logging.info("admin login refused for %s", email)
-                return False
-            if not verify_password(password, admin.password_hash):
+            known = admin is not None and admin.is_active
+            matches = verify_password(password, admin.password_hash if known else _placeholder_hash())
+            if not (known and matches):
                 logging.info("admin login refused for %s", email)
                 return False
             admin.last_login_at = utcnow()
@@ -299,7 +312,8 @@ class UserAdmin(ChangeableView, model=User):
         keeps it, so saving that account for an unrelated reason, such as
         suspending it, must not be refused for a plan nobody is changing.
         """
-        chosen = (data.get("password_hash") or "").strip()
+        submitted = data.get("password_hash") or ""
+        chosen = submitted if submitted.strip() else ""
         if not chosen:
             data.pop("password_hash", None)
         if model.trashed_at is not None and data.get("is_active"):
@@ -341,7 +355,7 @@ def _workspace_activity(model, name):
     someone is connected to the workspace right now, which only the visdom
     instances know.
     """
-    entry = activity.cached_activity().get(str(model.id))
+    entry = activity.known_activity().get(str(model.id))
     if entry is None:
         return "idle"
     viewers, writers = entry.get("viewers", 0), entry.get("writers", 0)
@@ -357,7 +371,7 @@ def _workspace_activity(model, name):
 
 def _workspace_last_active(model, name):
     """Render how long ago the workspace was last written to."""
-    snapshot = activity.cached_snapshot()
+    snapshot = activity.known_snapshot()
     entry = snapshot["workspaces"].get(str(model.id))
     last = entry.get("last_active_at") if entry else None
     if not last:
@@ -433,6 +447,15 @@ def _key_lines(model, name):
         db.close()
 
 
+def _for_roles_that_see(model_name, formatter):
+    def format(model, name, request):
+        if not roles.can_see(request.session.get(ROLE_KEY), model_name):
+            return "hidden"
+        return formatter(model, name)
+
+    return format
+
+
 def _link_lines(model, name):
     db = SessionLocal()
     try:
@@ -457,7 +480,7 @@ def _workspace_size(model, name):
     without doing anything obviously wrong, and this is the only place that
     would show it before the disk filled.
     """
-    snapshot = activity.cached_snapshot()
+    snapshot = activity.known_snapshot()
     entry = snapshot["workspaces"].get(str(model.id))
     size = entry.get("bytes") if entry else None
     if size is None:
@@ -488,7 +511,7 @@ def _workspace_traffic(model, name):
     that looks like a lifetime total but silently is not would be worse than no
     number.
     """
-    entry = activity.cached_activity().get(str(model.id)) or {}
+    entry = activity.known_activity().get(str(model.id)) or {}
     writes = entry.get("writes")
     pushes = entry.get("broadcasts")
     if writes is None and pushes is None:
@@ -628,10 +651,18 @@ class WorkspaceAdmin(ChangeableView, model=Workspace):
         "traffic": _workspace_traffic,
         "size": _workspace_size,
         "members": _member_lines,
-        "invites": _invite_lines,
-        "keys": _key_lines,
-        "links": _link_lines,
+        "invites": _for_roles_that_see("WorkspaceInvite", _invite_lines),
+        "keys": _for_roles_that_see("APIKey", _key_lines),
+        "links": _for_roles_that_see("WorkspaceInvite", _link_lines),
     }
+
+    async def list(self, request: Request):
+        await activity.refresh_activity()
+        return await super().list(request)
+
+    async def get_object_for_details(self, request: Request):
+        await activity.refresh_activity()
+        return await super().get_object_for_details(request)
 
 
 def _other_active_admins(db, membership):
@@ -642,17 +673,18 @@ def _other_active_admins(db, membership):
     at once would otherwise each see the other and both be allowed through,
     leaving a workspace nobody can administer.
     """
-    return (
+    admins = (
         db.query(Membership)
         .filter(
             Membership.workspace_id == membership.workspace_id,
             Membership.role == "admin",
             Membership.status == "active",
-            Membership.user_id != membership.user_id,
         )
+        .order_by(Membership.user_id)
         .with_for_update()
         .all()
     )
+    return [admin for admin in admins if admin.user_id != membership.user_id]
 
 
 class MembershipAdmin(ChangeableView, model=Membership):
@@ -669,6 +701,8 @@ class MembershipAdmin(ChangeableView, model=Membership):
     category = "Workspaces"
     category_icon = "fa-solid fa-folder"
     form_columns = [Membership.role]
+    form_overrides = {"role": wtforms.SelectField}
+    form_args = {"role": {"choices": [(role, role) for role in get_args(RoleLiteral)]}}
     column_list = [
         Membership.workspace,
         Membership.user,
@@ -709,23 +743,18 @@ class MembershipAdmin(ChangeableView, model=Membership):
         if new_role is None or new_role == model.role or model.role != "admin":
             return
 
-        db = SessionLocal()
-        try:
-            workspace = (
-                db.query(Workspace).filter(Workspace.id == model.workspace_id).first()
+        db = object_session(model)
+        workspace = db.query(Workspace).filter(Workspace.id == model.workspace_id).first()
+        if workspace is not None and workspace.created_by == model.user_id:
+            raise HTTPException(
+                status_code=403,
+                detail="The workspace owner is always an admin.",
             )
-            if workspace is not None and workspace.created_by == model.user_id:
-                raise HTTPException(
-                    status_code=403,
-                    detail="The workspace owner is always an admin.",
-                )
-            if not _other_active_admins(db, model):
-                raise HTTPException(
-                    status_code=400,
-                    detail="This is the workspace's last admin.",
-                )
-        finally:
-            db.close()
+        if not _other_active_admins(db, model):
+            raise HTTPException(
+                status_code=400,
+                detail="This is the workspace's last admin.",
+            )
 
     async def on_model_delete(self, model, request: Request) -> None:
         """Refuse a removal that would leave a workspace with no admin.
@@ -734,17 +763,18 @@ class MembershipAdmin(ChangeableView, model=Membership):
         that could do what the product refuses would be a way around the rule
         rather than a way to administer it.
         """
-        if model.role != "admin" or model.status != "active":
-            return
-        db = SessionLocal()
-        try:
-            if not _other_active_admins(db, model):
-                raise HTTPException(
-                    status_code=400,
-                    detail="Cannot remove the last admin of a workspace.",
-                )
-        finally:
-            db.close()
+        db = object_session(model)
+        if model.role == "admin" and model.status == "active" and not _other_active_admins(db, model):
+            raise HTTPException(
+                status_code=400,
+                detail="Cannot remove the last admin of a workspace.",
+            )
+        workspace = db.query(Workspace).filter(Workspace.id == model.workspace_id).first()
+        if workspace is not None and workspace.created_by == model.user_id:
+            raise HTTPException(
+                status_code=403,
+                detail="The workspace owner cannot be removed.",
+            )
 
 
 class APIKeyAdmin(ChangeableView, model=APIKey):
@@ -820,16 +850,17 @@ def _other_active_superadmins(db, admin):
     two staff stopping the last two superadmins at once would each see the
     other and both be let through, leaving a console nobody can open.
     """
-    return (
+    superadmins = (
         db.query(AdminUser)
         .filter(
             AdminUser.role == roles.SUPERADMIN,
             AdminUser.is_active.is_(True),
-            AdminUser.id != admin.id,
         )
+        .order_by(AdminUser.id)
         .with_for_update()
         .all()
     )
+    return [other for other in superadmins if other.id != admin.id]
 
 
 def _plan_standing(model, _attr):
@@ -1148,15 +1179,11 @@ class AdminUserAdmin(RoleScopedView, model=AdminUser):
                 data.pop(key)
 
         if data.get("is_active") is False and model.role == roles.SUPERADMIN:
-            db = SessionLocal()
-            try:
-                if not _other_active_superadmins(db, model):
-                    raise HTTPException(
-                        status_code=400,
-                        detail="This is the last superadmin who can still sign in.",
-                    )
-            finally:
-                db.close()
+            if not _other_active_superadmins(object_session(model), model):
+                raise HTTPException(
+                    status_code=400,
+                    detail="This is the last superadmin who can still sign in.",
+                )
 
 
 class PlanMovesView(BaseView):
@@ -2052,6 +2079,54 @@ _AUDIT_LABELS = {
 }
 
 
+def _audit_kind(entry):
+    return "".join(ch for ch in str(entry.model).lower() if ch.isalnum())
+
+
+def _audit_key(entry):
+    kind = _audit_kind(entry)
+    try:
+        if kind == "membership":
+            user_id, _, workspace_id = entry.row_id.partition(";")
+            return kind, (uuid.UUID(user_id), uuid.UUID(workspace_id))
+        if kind in _AUDIT_LABELS:
+            return kind, uuid.UUID(entry.row_id)
+    except (TypeError, ValueError):
+        pass
+    return None
+
+
+def _audit_labels(db, entries):
+    wanted = {}
+    for entry in entries:
+        key = _audit_key(entry)
+        if key is not None:
+            wanted.setdefault(key[0], set()).add(key[1])
+    labels = {}
+    for kind, ids in wanted.items():
+        if kind == "membership":
+            rows = (
+                db.query(Membership)
+                .options(joinedload(Membership.user), joinedload(Membership.workspace))
+                .filter(
+                    Membership.user_id.in_({user_id for user_id, _ in ids}),
+                    Membership.workspace_id.in_({workspace_id for _, workspace_id in ids}),
+                )
+            )
+            for row in rows:
+                pair = (row.user_id, row.workspace_id)
+                if pair in ids:
+                    labels[(kind, pair)] = _RECORD_LABELS["Membership"](row)
+        else:
+            table, label = _AUDIT_LABELS[kind]
+            rows = db.query(table).filter(table.id.in_(ids))
+            if table is APIKey:
+                rows = rows.options(joinedload(APIKey.owner))
+            for row in rows:
+                labels[(kind, row.id)] = label(row)
+    return labels
+
+
 def _audit_subject(model, name):
     """Name the row an entry is about, falling back to its id.
 
@@ -2062,24 +2137,22 @@ def _audit_subject(model, name):
     """
     if not model.row_id:
         return "unknown"
-    known = _AUDIT_LABELS.get("".join(ch for ch in str(model.model).lower() if ch.isalnum()))
-    if known is None:
+    kind = _audit_kind(model)
+    if kind not in _AUDIT_LABELS and kind != "membership":
         return model.row_id
-    table, label = known
-    db = SessionLocal()
-    try:
-        row = None
+    labels = getattr(model, "_audit_labels", None)
+    if labels is None:
+        db = SessionLocal()
         try:
-            row = db.query(table).filter(table.id == uuid.UUID(model.row_id)).first()
-        except ValueError:
-            pass
-        if row is not None:
-            return label(row)
-    except Exception:
-        logging.exception("could not name the subject of an audit entry")
-        return model.row_id
-    finally:
-        db.close()
+            labels = _audit_labels(db, [model])
+        except Exception:
+            logging.exception("could not name the subject of an audit entry")
+            return model.row_id
+        finally:
+            db.close()
+    label = labels.get(_audit_key(model))
+    if label is not None:
+        return label
 
     recorded = (model.changes or {}).get("purged_from_trash")
     if recorded:
@@ -2155,6 +2228,21 @@ class AdminActionAdmin(RoleScopedView, model=AdminAction):
     column_default_sort = (AdminAction.created_at, True)
     column_searchable_list = [AdminAction.admin_email, AdminAction.model]
 
+    async def list(self, request: Request):
+        page = await super().list(request)
+        db = SessionLocal()
+        try:
+            labels = _audit_labels(db, page.rows)
+        except Exception:
+            logging.exception("could not name the subjects of the audit trail")
+            labels = None
+        finally:
+            db.close()
+        if labels is not None:
+            for row in page.rows:
+                row._audit_labels = labels
+        return page
+
 
 VIEWS = (
     UserAdmin,
@@ -2182,7 +2270,6 @@ _CARDS = (
 def overview_cards(request):
     """Counts for the models the signed-in role is allowed to see."""
     role = request.session.get(ROLE_KEY)
-    base = str(request.base_url).rstrip("/")
     cards = []
     db = SessionLocal()
     try:
@@ -2192,7 +2279,7 @@ def overview_cards(request):
             cards.append({
                 "label": label,
                 "count": db.query(model).count(),
-                "url": "%s/admin/%s/list" % (base, slug),
+                "url": str(request.url_for("admin:list", identity=slug)),
             })
     except Exception as exc:
         logging.warning("overview counts failed: %s", exc)

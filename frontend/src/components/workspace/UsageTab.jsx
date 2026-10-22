@@ -36,8 +36,16 @@ const UsageTab = () => {
     );
   }
 
-  const rows = usage?.workspaces || [];
-  const totals = usage?.totals || { active_minutes: 0, storage_bytes: 0 };
+  if (!usage) {
+    return (
+      <section className="gc-panel">
+        <div className="gc-form-error">{error}</div>
+      </section>
+    );
+  }
+
+  const rows = usage.workspaces || [];
+  const totals = usage.totals || { active_minutes: 0, storage_bytes: 0 };
   const cap = usage?.workspace_storage_limit ?? null;
 
   return (

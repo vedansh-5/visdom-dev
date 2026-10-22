@@ -15,7 +15,7 @@ from sqlalchemy.orm import sessionmaker
 from starlette.testclient import TestClient
 
 from app.admin import panel
-from app.models import AdminUser, Workspace, utcnow
+from app.models import AdminUser, APIKey, Membership, User, Workspace, WorkspaceInvite, utcnow
 from app.security import get_password_hash
 
 PAGES = [
@@ -244,19 +244,26 @@ def test_only_a_superadmin_opens_the_audit_trail(admin_client, role):
     assert "Audit trail" not in admin_client.get("/admin/").text
 
 
+def _instances_answer(monkeypatch, workspaces, answered=True):
+    from app.admin import activity
+
+    monkeypatch.setattr(
+        activity, "activity_snapshot", lambda timeout=None: {"answered": answered, "workspaces": workspaces}
+    )
+    monkeypatch.setattr(activity, "_cache", {"at": 0.0, "value": {"answered": False, "workspaces": {}}})
+
+
 def test_the_workspace_page_reports_the_work_a_workspace_caused(admin_client, monkeypatch):
     """The counters come from the instances, so the page is asked with a known
     answer rather than a live deployment."""
-    from app.admin import activity
 
     workspace = Workspace(id=uuid.uuid4(), name="Busy", slug="busy-one")
     admin_client.staff_db.add(workspace)
     admin_client.staff_db.commit()
 
-    monkeypatch.setattr(
-        activity,
-        "cached_activity",
-        lambda: {
+    _instances_answer(
+        monkeypatch,
+        {
             str(workspace.id): {
                 "viewers": 1,
                 "writers": 0,
@@ -279,15 +286,12 @@ def test_the_workspace_page_reports_the_work_a_workspace_caused(admin_client, mo
 def test_a_workspace_whose_instance_reports_no_counters_says_so(admin_client, monkeypatch):
     """A visdom without the counters should read as unknown rather than as a
     workspace that has done nothing."""
-    from app.admin import activity
 
     workspace = Workspace(id=uuid.uuid4(), name="Quiet", slug="quiet-one")
     admin_client.staff_db.add(workspace)
     admin_client.staff_db.commit()
 
-    monkeypatch.setattr(
-        activity, "cached_activity", lambda: {str(workspace.id): {"viewers": 0}}
-    )
+    _instances_answer(monkeypatch, {str(workspace.id): {"viewers": 0}})
 
     detail = admin_client.get(
         f"/admin/workspace/details/{workspace.id}", follow_redirects=False
@@ -305,15 +309,12 @@ def test_a_workspace_no_instance_mentions_has_never_been_written_to(
     every workspace that has a directory. A workspace it does not mention has
     none, which means nobody has ever written to it.
     """
-    from app.admin import activity
 
     workspace = Workspace(id=uuid.uuid4(), name="Fresh", slug="fresh-one")
     admin_client.staff_db.add(workspace)
     admin_client.staff_db.commit()
 
-    monkeypatch.setattr(
-        activity, "cached_snapshot", lambda: {"answered": True, "workspaces": {}}
-    )
+    _instances_answer(monkeypatch, {})
 
     detail = admin_client.get(
         f"/admin/workspace/details/{workspace.id}", follow_redirects=False
@@ -325,15 +326,12 @@ def test_a_workspace_no_instance_mentions_has_never_been_written_to(
 
 def test_a_workspace_stays_unknown_when_no_instance_answered(admin_client, monkeypatch):
     """Silence from every instance is not evidence that nothing has happened."""
-    from app.admin import activity
 
     workspace = Workspace(id=uuid.uuid4(), name="Offline", slug="offline-one")
     admin_client.staff_db.add(workspace)
     admin_client.staff_db.commit()
 
-    monkeypatch.setattr(
-        activity, "cached_snapshot", lambda: {"answered": False, "workspaces": {}}
-    )
+    _instances_answer(monkeypatch, {}, answered=False)
 
     detail = admin_client.get(
         f"/admin/workspace/details/{workspace.id}", follow_redirects=False
@@ -1529,6 +1527,7 @@ def test_the_usage_page_lists_what_each_workspace_used(admin_client):
             broadcasts=3400,
             broadcast_bytes=5 * 1024 * 1024,
             peak_bytes=40 * 1024 * 1024,
+            current_bytes=40 * 1024 * 1024,
         )
     )
     db.commit()
@@ -2308,3 +2307,130 @@ def test_staff_who_cannot_switch_it_are_still_told_it_is_on(admin_client):
     page = admin_client.get("/admin/user/list").text
     assert "Limits bypassed" in page
     assert "/admin/limit-bypass" not in page
+
+
+@pytest.fixture
+def staff_panel(db_session, monkeypatch):
+    bind = db_session.get_bind()
+    engine = getattr(bind, "engine", bind)
+    staff_sessions = sessionmaker(bind=engine)
+    monkeypatch.setattr(panel, "SessionLocal", staff_sessions)
+    monkeypatch.setattr(panel, "engine", engine)
+
+    staff_db = staff_sessions()
+    for email, role in (("staff@example.com", "superadmin"), ("viewer@example.com", "viewer")):
+        staff_db.add(
+            AdminUser(
+                id=uuid.uuid4(),
+                email=email,
+                password_hash=get_password_hash("staffpassword"),
+                role=role,
+                is_active=True,
+            )
+        )
+    owner = User(
+        id=uuid.uuid4(),
+        email="owner@example.com",
+        username="owner",
+        password_hash=get_password_hash("ownerpassword"),
+    )
+    workspace = Workspace(id=uuid.uuid4(), name="Vision", slug="vision", created_by=owner.id)
+    staff_db.add_all(
+        [
+            owner,
+            workspace,
+            Membership(user_id=owner.id, workspace_id=workspace.id, role="admin"),
+            APIKey(
+                id=uuid.uuid4(),
+                user_id=owner.id,
+                name="laptop",
+                prefix="visdom_live",
+                hashed_key="not-a-real-hash",
+            ),
+        ]
+    )
+    staff_db.commit()
+
+    app = FastAPI()
+    panel.mount_admin(app, secret_key="test-secret-for-the-admin-session")
+    with TestClient(app) as client:
+
+        def sign_in(email):
+            answer = client.post(
+                "/admin/login",
+                data={"username": email, "password": "staffpassword"},
+                follow_redirects=False,
+            )
+            assert answer.status_code in (302, 303), answer.text
+            return client
+
+        sign_in.workspace_id = workspace.id
+        sign_in.owner_id = owner.id
+        yield sign_in
+    staff_db.close()
+
+
+@pytest.mark.parametrize("path,what", PAGES)
+def test_every_staff_page_renders(staff_panel, path, what):
+    response = staff_panel("staff@example.com").get(path, follow_redirects=False)
+    assert response.status_code == 200, f"{what} at {path}: {response.status_code}"
+    assert response.text.strip(), f"{what} rendered nothing"
+
+
+def test_the_detail_pages_render(staff_panel):
+    client = staff_panel("staff@example.com")
+    for path in (
+        f"/admin/workspace/details/{staff_panel.workspace_id}",
+        f"/admin/user/details/{staff_panel.owner_id}",
+    ):
+        assert client.get(path, follow_redirects=False).status_code == 200, path
+
+
+def test_a_viewer_is_not_served_the_cleanup_page(staff_panel):
+    response = staff_panel("viewer@example.com").get("/admin/janitor", follow_redirects=False)
+    assert response.status_code == 403
+
+
+def test_a_viewer_does_not_see_invites_keys_or_links_on_a_workspace(staff_panel):
+    db = panel.SessionLocal()
+    db.add(WorkspaceInvite(workspace_id=staff_panel.workspace_id, email="guest@example.com", role="read"))
+    db.commit()
+    db.close()
+    path = f"/admin/workspace/details/{staff_panel.workspace_id}"
+
+    page = staff_panel("viewer@example.com").get(path, follow_redirects=False)
+    assert page.status_code == 200
+    assert "guest@example.com" not in page.text
+    assert "hidden" in page.text
+
+    page = staff_panel("staff@example.com").get(path, follow_redirects=False)
+    assert "guest@example.com" in page.text
+
+
+def test_overview_links_follow_where_the_panel_is_mounted(db_session, monkeypatch):
+    bind = db_session.get_bind()
+    engine = getattr(bind, "engine", bind)
+    staff_sessions = sessionmaker(bind=engine)
+    monkeypatch.setattr(panel, "SessionLocal", staff_sessions)
+    monkeypatch.setattr(panel, "engine", engine)
+    db = staff_sessions()
+    db.add(
+        AdminUser(
+            id=uuid.uuid4(),
+            email="boss@example.com",
+            password_hash=get_password_hash("staffpassword"),
+            role="superadmin",
+            is_active=True,
+        )
+    )
+    db.commit()
+    db.close()
+
+    app = FastAPI()
+    panel.mount_admin(app, secret_key="test-secret-for-the-admin-session", base_url="/staff")
+    with TestClient(app) as client:
+        client.post("/staff/login", data={"username": "boss@example.com", "password": "staffpassword"})
+        page = client.get("/staff/", follow_redirects=False)
+    assert page.status_code == 200
+    assert "/staff/user/list" in page.text
+    assert "/admin/user/list" not in page.text

@@ -10,11 +10,18 @@ nightly backup:
 | Step | What goes | What stays |
 |---|---|---|
 | `docker builder prune --all --filter until=168h` | every build file not used for a week, not only the dangling ones | anything the last week of deploys used, so the next build is still quick |
-| `docker builder prune --max-used-space 3gb` | the oldest build files, until at most 3 GB are left. Needs Docker Engine 28 or newer; an older one skips this step and carries on | the newest 3 GB, for a week with many deploys |
+| `docker buildx prune --max-used-space 3gb` | the oldest build files, until at most 3 GB are left. Needs Docker Engine 28 or newer; an older one skips this step and carries on | the newest 3 GB, for a week with many deploys |
 | `docker image prune` | images no container uses and no tag points at | every image a container is running |
 | `df -h /` | nothing | prints disk use into the log, so the effect can be read back |
 
 Volumes are never touched. The database and every plot live in volumes.
+
+If the machine was off on Sunday at that time, the run is caught up once when
+it next starts, whatever the hour.
+
+These commands work on the whole Docker host, not only on visdom-dev. On a
+machine that runs other things as well, their old build files and unused images
+are cleared too.
 
 ## Install, once
 

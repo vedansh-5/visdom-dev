@@ -2,6 +2,8 @@
 import io
 import json
 
+import pytest
+
 from app import internal_signing
 from app.admin import activity
 
@@ -77,3 +79,28 @@ def test_the_calls_that_change_data_are_signed_with_the_admin_key(monkeypatch):
             "admin-key", "POST", path, int(request.get_header("X-visdom-timestamp")), request.data
         )
         assert request.get_header("X-visdom-signature") == expected
+
+
+def test_a_ca_path_that_is_a_directory_is_named(monkeypatch, tmp_path):
+    monkeypatch.setattr(activity.settings, "VISDOM_INTERNAL_CA", str(tmp_path))
+
+    assert activity.internal_setup_problem() == "VISDOM_INTERNAL_CA cannot be read"
+
+
+@pytest.mark.parametrize(
+    "setting, value, problem",
+    [
+        ("VISDOM_INTERNAL_READ_KEY", "", "VISDOM_INTERNAL_READ_KEY is not set"),
+        ("VISDOM_INTERNAL_CA", "", "VISDOM_INTERNAL_CA is not set"),
+        ("VISDOM_INTERNAL_CA", "/nowhere/ca.pem", "VISDOM_INTERNAL_CA cannot be read"),
+    ],
+)
+def test_nothing_is_sent_until_the_key_and_ca_are_set(monkeypatch, setting, value, problem):
+    sent = []
+    monkeypatch.setattr(activity.urllib.request, "urlopen", lambda *a, **k: sent.append(a))
+    monkeypatch.setattr(activity.settings, setting, value)
+
+    assert activity.internal_setup_problem() == problem
+    assert activity._ask("visdom-1:8097", 1.0) == (False, [])
+    assert activity.certificate_days_left("visdom-1:8097", 1.0) is None
+    assert sent == []

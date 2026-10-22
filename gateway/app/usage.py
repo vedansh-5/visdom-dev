@@ -11,13 +11,15 @@ Shared by the billing page and by the checks that refuse a creation, so the
 number someone is shown and the number they are held to are the same one.
 """
 
+import datetime
+
 from fastapi import HTTPException, status
 from sqlalchemy import and_, func
 from sqlalchemy.orm import Session
 
 from app import bypass
 from app.billing import LIMIT_KEYS, get_plan
-from app.models import APIKey, Membership, User, Workspace, WorkspaceInvite, WorkspaceUsageHour
+from app.models import APIKey, Membership, User, Workspace, WorkspaceInvite, WorkspaceUsageHour, utcnow
 
 
 def owned_workspace_ids(db: Session, user: User, include_trashed: bool = False) -> list:
@@ -68,13 +70,41 @@ def invites_waiting(db: Session, user: User) -> int:
     return unanswered + unregistered
 
 
+def invites_waiting_in(db: Session, workspace_id) -> int:
+    """Invites sent and not yet answered in one workspace."""
+    unanswered = (
+        db.query(Membership)
+        .filter(
+            Membership.workspace_id == workspace_id,
+            Membership.status == "pending_acceptance",
+        )
+        .count()
+    )
+    unregistered = db.query(WorkspaceInvite).filter(WorkspaceInvite.workspace_id == workspace_id).count()
+    return unanswered + unregistered
+
+
+def seats_held(db: Session, user: User) -> int:
+    return members_used(db, user) + invites_waiting(db, user)
+
+
+def _still_works(expires_at, now) -> bool:
+    if expires_at is None:
+        return True
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=datetime.timezone.utc)
+    return now <= expires_at
+
+
 def api_keys_used(db: Session, user: User) -> int:
-    return db.query(APIKey).filter(APIKey.user_id == user.id).count()
+    now = utcnow()
+    rows = db.query(APIKey.expires_at).filter(APIKey.user_id == user.id, APIKey.is_active.is_(True)).all()
+    return sum(1 for (expires_at,) in rows if _still_works(expires_at, now))
 
 
 COUNTERS = {
     "workspaces": workspaces_used,
-    "members": members_used,
+    "members": seats_held,
     "api_keys": api_keys_used,
 }
 
@@ -105,8 +135,19 @@ def allowance(db: Session, user: User, resource: str):
     return allowances(db, user).get(resource)
 
 
+def hold_account(db: Session, user: User) -> None:
+    """Make checks against this account's limits wait for one another.
+
+    A check counts rows and the caller adds one afterwards, so two requests at
+    once could both find room. Holding the account's row until the caller
+    commits lets only one of them count at a time.
+    """
+    db.query(User).filter(User.id == user.id).with_for_update().populate_existing().first()
+
+
 def refuse_if_at_limit(db: Session, user: User, resource: str) -> None:
     """Stop a creation that the account's plan does not allow."""
+    hold_account(db, user)
     tier = user.tier or "free"
     ceiling = allowance(db, user, resource)
     if ceiling is None or COUNTERS[resource](db, user) < ceiling:
@@ -124,6 +165,7 @@ def refuse_if_no_seat(db: Session, owner: User) -> None:
     accepted let an owner send any number of invites while under the limit and
     end up with all of them as members.
     """
+    hold_account(db, owner)
     tier = owner.tier or "free"
     ceiling = allowance(db, owner, "members")
     if ceiling is None:
@@ -149,6 +191,7 @@ def refuse_if_full(db: Session, owner: User) -> None:
     the invite that was sent before seats were held, or the plan that shrank
     while it waited.
     """
+    hold_account(db, owner)
     ceiling = allowance(db, owner, "members")
     if ceiling is None or members_used(db, owner) < ceiling:
         return
@@ -179,7 +222,7 @@ def latest_storage(db: Session, workspace_ids) -> dict:
         .subquery()
     )
     rows = (
-        db.query(WorkspaceUsageHour.workspace_id, WorkspaceUsageHour.peak_bytes)
+        db.query(WorkspaceUsageHour.workspace_id, WorkspaceUsageHour.current_bytes)
         .join(
             newest,
             and_(
@@ -214,42 +257,35 @@ def workspace_storage_limit(db: Session, workspace: Workspace) -> int | None:
     return None if limit_mb is None else limit_mb * MEGABYTE
 
 
-def refuse_writes_over_storage(db: Session, workspace: Workspace) -> None:
-    """Stop new plots once the workspace, or its owner's plan, is out of storage.
+def storage_refusal(db: Session, workspace: Workspace) -> str | None:
+    """Why new plots are refused here, or ``None`` while there is room.
 
     Two ceilings: what any one workspace may hold, and what all of the owner's
     workspaces may hold together. The first is what stops one busy workspace
     taking the whole allowance, or the whole disk on a plan with no total.
 
     The owner's plan is the one that pays, so a member writing into someone
-    else's workspace is held to the owner's limit, not their own. Only writes
-    are refused: reading and deleting still work, which is how an account gets
-    back under the limit.
+    else's workspace is held to the owner's limit, not their own. The gateway
+    only says so: visdom refuses the requests that add data, and keeps serving
+    reads and deletions, which is how an account gets back under the limit.
     """
     owner = workspace.creator
     if owner is None:
-        return
+        return None
     ceiling = workspace_storage_limit(db, workspace)
     if ceiling is not None and latest_storage(db, [workspace.id]).get(workspace.id, 0) >= ceiling:
-        raise HTTPException(
-            status_code=status.HTTP_402_PAYMENT_REQUIRED,
-            detail=(
-                f"This workspace has used all {ceiling // MEGABYTE:,} MB of storage one "
-                f"workspace may hold on the {owner.tier} plan, so new plots are refused. "
-                "Viewing still works; deleting old environments frees space."
-            ),
+        return (
+            f"This workspace has used all {ceiling // MEGABYTE:,} MB of storage one "
+            f"workspace may hold on the {owner.tier} plan, so new plots are refused. "
+            "Viewing still works; deleting old environments frees space."
         )
     limit_mb = allowance(db, owner, "storage_mb")
     if limit_mb is None:
-        return
-    used = storage_used(db, owner)
-    if used < limit_mb * MEGABYTE:
-        return
-    raise HTTPException(
-        status_code=status.HTTP_402_PAYMENT_REQUIRED,
-        detail=(
-            f"This workspace's owner has used all {limit_mb:,} MB of storage on the "
-            f"{owner.tier} plan, so new plots are refused. Viewing still works; "
-            "deleting old environments frees space."
-        ),
+        return None
+    if storage_used(db, owner) < limit_mb * MEGABYTE:
+        return None
+    return (
+        f"This workspace's owner has used all {limit_mb:,} MB of storage on the "
+        f"{owner.tier} plan, so new plots are refused. Viewing still works; "
+        "deleting old environments frees space."
     )

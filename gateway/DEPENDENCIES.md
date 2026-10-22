@@ -31,3 +31,9 @@ Add it to `requirements.txt`, install it, and add its line (and the lines of
 anything new it pulled in) to `constraints.txt`. A package that is in
 `requirements.txt` but not in `constraints.txt` still installs, at whatever
 version is newest, which is the thing this file exists to stop.
+
+## Python and Node versions
+
+`.python-version` and `.nvmrc` at the top of the repository say which Python
+and Node every CI job runs. The Dockerfiles cannot read those files, so their
+`FROM` lines name the same versions. Change them together.

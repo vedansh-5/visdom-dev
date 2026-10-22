@@ -27,7 +27,8 @@ the totals used are always at least as new as the baseline they are compared to.
 
 Active minutes are not differenced. Each instance reports which minutes of an
 hour had work in them as a mask, masks from different instances are unioned, and
-the count lands on the hour the mask belongs to, keeping the highest seen.
+the masks are unioned into the one stored on the hour they belong to, so minutes
+seen before an instance restarted or a workspace moved are kept.
 """
 
 import datetime
@@ -39,9 +40,13 @@ from sqlalchemy.orm import Session
 
 from app import heartbeat
 from app.models import UsageBaseline, Workspace, WorkspaceUsageHour, utcnow
+from app.usage import latest_storage
 
 _COUNTERS = ("writes", "broadcasts", "broadcast_bytes")
 _TICK_LOCK = 7234091
+_LARGEST = 2**63 - 1
+_LAST_HOUR = 253402300799 // 3600
+_FULL_MASK = (1 << 60) - 1
 
 
 def hour_start(moment: datetime.datetime | None = None) -> datetime.datetime:
@@ -80,9 +85,40 @@ def take_tick(db: Session) -> bool:
     return bool(granted)
 
 
+def _number(value, default=0, largest=_LARGEST):
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        raise ValueError("a flag is not a count")
+    number = int(value)
+    if not 0 <= number <= largest:
+        raise ValueError(f"{number} is out of range")
+    return number
+
+
+def reading(entry) -> dict | None:
+    if not isinstance(entry, dict):
+        return None
+    workspace_id = entry.get("workspace_id")
+    if not isinstance(workspace_id, str) or not workspace_id:
+        return None
+    try:
+        checked = {name: _number(entry.get(name)) for name in _COUNTERS}
+        checked["bytes"] = _number(entry.get("bytes"))
+        checked["active_hour"] = _number(entry.get("active_hour"), None, _LAST_HOUR)
+        checked["active_minutes_mask"] = _number(
+            entry.get("active_minutes_mask"), 0, _FULL_MASK
+        )
+    except (TypeError, ValueError, OverflowError) as exc:
+        logging.warning("skipping activity for %s: %s", workspace_id, exc)
+        return None
+    checked["workspace_id"] = workspace_id
+    return checked
+
+
 def _advance(db: Session, instance: str, workspace_id: str, entry: dict) -> dict:
     """Move one instance's baseline for one workspace on, returning what is new."""
-    current = {name: int(entry.get(name) or 0) for name in _COUNTERS}
+    current = {name: entry[name] for name in _COUNTERS}
     baseline = db.get(UsageBaseline, {"instance": instance, "workspace_id": workspace_id})
     if baseline is None:
         db.add(UsageBaseline(instance=instance, workspace_id=workspace_id, **current))
@@ -102,10 +138,11 @@ def gather(db: Session, answers) -> dict:
     for instance, answered, entries in answers:
         if not answered:
             continue
-        for entry in entries:
-            workspace_id = entry.get("workspace_id")
-            if not workspace_id:
+        for raw in entries:
+            entry = reading(raw)
+            if entry is None:
                 continue
+            workspace_id = entry["workspace_id"]
             new = _advance(db, instance, workspace_id, entry)
             slot = totals.setdefault(
                 workspace_id,
@@ -113,11 +150,11 @@ def gather(db: Session, answers) -> dict:
             )
             for name in _COUNTERS:
                 slot[name] += new[name]
-            slot["peak_bytes"] = max(slot["peak_bytes"], int(entry.get("bytes") or 0))
-            hour = entry.get("active_hour")
+            slot["peak_bytes"] = max(slot["peak_bytes"], entry["bytes"])
+            hour = entry["active_hour"]
             if hour is None:
                 continue
-            mask = int(entry.get("active_minutes_mask") or 0)
+            mask = entry["active_minutes_mask"]
             if slot["hour"] is None or hour > slot["hour"]:
                 slot["hour"], slot["mask"] = hour, mask
             elif hour == slot["hour"]:
@@ -155,6 +192,8 @@ def _row(db: Session, rows: dict, workspace_id, bucket) -> WorkspaceUsageHour:
             broadcasts=0,
             broadcast_bytes=0,
             peak_bytes=0,
+            current_bytes=0,
+            minutes_mask=0,
         )
         db.add(row)
     rows[key] = row
@@ -168,6 +207,7 @@ def record(db: Session, totals: dict, when: datetime.datetime | None = None) -> 
     if not ids:
         return 0
     known = {str(row_id) for (row_id,) in db.query(Workspace.id).filter(Workspace.id.in_(ids))}
+    stored = latest_storage(db, ids)
 
     bucket = hour_start(when)
     rows: dict = {}
@@ -176,7 +216,8 @@ def record(db: Session, totals: dict, when: datetime.datetime | None = None) -> 
         as_uuid = wanted[workspace_id]
         if as_uuid is None or str(as_uuid) not in known:
             continue
-        worked = any(slot[name] for name in _COUNTERS) or slot["peak_bytes"]
+        emptied = not slot["peak_bytes"] and stored.get(as_uuid, 0) > 0
+        worked = any(slot[name] for name in _COUNTERS) or slot["peak_bytes"] or emptied
         minutes = active_minutes_from(slot["mask"])
         if not worked and not minutes:
             continue
@@ -185,9 +226,13 @@ def record(db: Session, totals: dict, when: datetime.datetime | None = None) -> 
             for name in _COUNTERS:
                 setattr(row, name, (getattr(row, name) or 0) + slot[name])
             row.peak_bytes = max(row.peak_bytes or 0, slot["peak_bytes"])
+            row.current_bytes = slot["peak_bytes"]
         if minutes:
             row = _row(db, rows, as_uuid, hour_of(slot["hour"]))
-            row.active_minutes = max(row.active_minutes or 0, minutes)
+            row.minutes_mask = (row.minutes_mask or 0) | slot["mask"]
+            row.active_minutes = max(
+                row.active_minutes or 0, active_minutes_from(row.minutes_mask)
+            )
         folded += 1
     return folded
 
