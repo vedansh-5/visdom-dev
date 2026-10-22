@@ -60,14 +60,6 @@ def test_an_internal_certificate_near_its_end_is_degraded(client, monkeypatch):
     assert answered.json()["checks"]["internal_certificate"] == "12 days left"
 
 
-def test_an_unreadable_internal_certificate_is_reported_as_unknown(client, monkeypatch):
-    monkeypatch.setattr(health, "instance_addresses", lambda: ["visdom-1:8097"])
-    monkeypatch.setattr(health, "activity_per_instance", lambda timeout: [("visdom-1:8097", False, [])])
-    monkeypatch.setattr(health, "certificate_days_left", lambda address, timeout: None)
-    answered = client.get(f"{HEALTH}/components")
-    assert answered.json()["checks"]["internal_certificate"] == "unknown"
-
-
 def test_one_instance_down_is_degraded(client, monkeypatch):
     """The failure this exists for: the console is fine and no plots work."""
     monkeypatch.setattr(health, "instance_addresses", lambda: ["visdom-1:8097", "visdom-2:8097"])
@@ -154,3 +146,25 @@ def test_a_sample_leaves_a_heartbeat_even_with_nothing_to_record(db_session):
     assert heartbeat.last(db_session, heartbeat.USAGE) is None
     usage_rollup.sample_once(db_session, lambda: [])
     assert heartbeat.last(db_session, heartbeat.USAGE) is not None
+
+
+def test_an_unreadable_internal_certificate_is_degraded(client, monkeypatch):
+    monkeypatch.setattr(health, "instance_addresses", lambda: ["visdom-1:8097", "visdom-2:8097"])
+    monkeypatch.setattr(
+        health, "activity_per_instance", lambda timeout: [("visdom-1:8097", True, []), ("visdom-2:8097", True, [])]
+    )
+    days = {"visdom-1:8097": 400.0, "visdom-2:8097": None}
+    monkeypatch.setattr(health, "certificate_days_left", lambda address, timeout: days[address])
+    answered = client.get(f"{HEALTH}/components")
+    assert answered.status_code == 503
+    assert answered.json()["checks"]["internal_certificate"] == "could not be read on 1 of 2"
+
+
+def test_a_missing_internal_key_is_named_and_degraded(client, monkeypatch):
+    monkeypatch.setattr(health, "instance_addresses", lambda: ["visdom-1:8097"])
+    monkeypatch.setattr(health, "activity_per_instance", lambda timeout: [("visdom-1:8097", False, [])])
+    monkeypatch.setattr(health, "certificate_days_left", lambda address, timeout: None)
+    monkeypatch.setattr(health.settings, "VISDOM_INTERNAL_READ_KEY", "")
+    answered = client.get(f"{HEALTH}/components")
+    assert answered.status_code == 503
+    assert answered.json()["checks"]["internal_setup"] == "VISDOM_INTERNAL_READ_KEY is not set"

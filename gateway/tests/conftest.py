@@ -1,6 +1,7 @@
 # Copyright 2017-present, The Visdom Authors
 import itertools
 import os
+from pathlib import Path
 
 import bcrypt
 import pytest
@@ -17,6 +18,7 @@ os.environ["STRIPE_WEBHOOK_SECRET"] = ""
 os.environ.setdefault("JWT_SECRET", "test-jwt-secret-0123456789abcdef")
 
 from app import security
+from app.config import settings
 from app.database import Base
 from app.dependencies import get_db
 from app.main import app
@@ -33,6 +35,12 @@ engine = create_engine(
 TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 _counter = itertools.count(1)
+
+@pytest.fixture(autouse=True)
+def internal_setup(monkeypatch):
+    monkeypatch.setattr(settings, "VISDOM_INTERNAL_READ_KEY", "test-key")
+    monkeypatch.setattr(settings, "VISDOM_INTERNAL_CA", str(Path(__file__).with_name("internal-ca.pem")))
+
 
 @pytest.fixture(scope="function", autouse=True)
 def setup_database():
