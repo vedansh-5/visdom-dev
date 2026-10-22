@@ -6,13 +6,13 @@
 
 """Outbound email, through whichever SMTP relay the settings name.
 
-The live deployment is meant to use Brevo. Until `SMTP_HOST` and `MAIL_FROM` are
-set nothing is sent: `configured()` is false and `send()` logs what would have
-gone out and returns False. Anything that must not act as though a message was
-delivered checks `configured()`, or the result of `send()`, first.
+The live deployment is meant to use SendGrid's SMTP relay. Until `SMTP_HOST` and
+`MAIL_FROM` are set nothing is sent: `configured()` is false and `send()` logs
+what would have gone out and returns False. Anything that must not act as though
+a message was delivered checks `configured()`, or the result of `send()`, first.
 
 Port 465 speaks TLS from the start; anything else upgrades with STARTTLS, which
-is what Brevo recommends on 587.
+is what SendGrid recommends on 587.
 """
 
 import logging
