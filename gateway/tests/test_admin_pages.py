@@ -244,19 +244,26 @@ def test_only_a_superadmin_opens_the_audit_trail(admin_client, role):
     assert "Audit trail" not in admin_client.get("/admin/").text
 
 
+def _instances_answer(monkeypatch, workspaces, answered=True):
+    from app.admin import activity
+
+    monkeypatch.setattr(
+        activity, "activity_snapshot", lambda timeout=None: {"answered": answered, "workspaces": workspaces}
+    )
+    monkeypatch.setattr(activity, "_cache", {"at": 0.0, "value": {"answered": False, "workspaces": {}}})
+
+
 def test_the_workspace_page_reports_the_work_a_workspace_caused(admin_client, monkeypatch):
     """The counters come from the instances, so the page is asked with a known
     answer rather than a live deployment."""
-    from app.admin import activity
 
     workspace = Workspace(id=uuid.uuid4(), name="Busy", slug="busy-one")
     admin_client.staff_db.add(workspace)
     admin_client.staff_db.commit()
 
-    monkeypatch.setattr(
-        activity,
-        "cached_activity",
-        lambda: {
+    _instances_answer(
+        monkeypatch,
+        {
             str(workspace.id): {
                 "viewers": 1,
                 "writers": 0,
@@ -279,15 +286,12 @@ def test_the_workspace_page_reports_the_work_a_workspace_caused(admin_client, mo
 def test_a_workspace_whose_instance_reports_no_counters_says_so(admin_client, monkeypatch):
     """A visdom without the counters should read as unknown rather than as a
     workspace that has done nothing."""
-    from app.admin import activity
 
     workspace = Workspace(id=uuid.uuid4(), name="Quiet", slug="quiet-one")
     admin_client.staff_db.add(workspace)
     admin_client.staff_db.commit()
 
-    monkeypatch.setattr(
-        activity, "cached_activity", lambda: {str(workspace.id): {"viewers": 0}}
-    )
+    _instances_answer(monkeypatch, {str(workspace.id): {"viewers": 0}})
 
     detail = admin_client.get(
         f"/admin/workspace/details/{workspace.id}", follow_redirects=False
@@ -305,15 +309,12 @@ def test_a_workspace_no_instance_mentions_has_never_been_written_to(
     every workspace that has a directory. A workspace it does not mention has
     none, which means nobody has ever written to it.
     """
-    from app.admin import activity
 
     workspace = Workspace(id=uuid.uuid4(), name="Fresh", slug="fresh-one")
     admin_client.staff_db.add(workspace)
     admin_client.staff_db.commit()
 
-    monkeypatch.setattr(
-        activity, "cached_snapshot", lambda: {"answered": True, "workspaces": {}}
-    )
+    _instances_answer(monkeypatch, {})
 
     detail = admin_client.get(
         f"/admin/workspace/details/{workspace.id}", follow_redirects=False
@@ -325,15 +326,12 @@ def test_a_workspace_no_instance_mentions_has_never_been_written_to(
 
 def test_a_workspace_stays_unknown_when_no_instance_answered(admin_client, monkeypatch):
     """Silence from every instance is not evidence that nothing has happened."""
-    from app.admin import activity
 
     workspace = Workspace(id=uuid.uuid4(), name="Offline", slug="offline-one")
     admin_client.staff_db.add(workspace)
     admin_client.staff_db.commit()
 
-    monkeypatch.setattr(
-        activity, "cached_snapshot", lambda: {"answered": False, "workspaces": {}}
-    )
+    _instances_answer(monkeypatch, {}, answered=False)
 
     detail = admin_client.get(
         f"/admin/workspace/details/{workspace.id}", follow_redirects=False
@@ -1529,6 +1527,7 @@ def test_the_usage_page_lists_what_each_workspace_used(admin_client):
             broadcasts=3400,
             broadcast_bytes=5 * 1024 * 1024,
             peak_bytes=40 * 1024 * 1024,
+            current_bytes=40 * 1024 * 1024,
         )
     )
     db.commit()

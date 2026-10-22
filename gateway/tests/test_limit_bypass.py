@@ -64,15 +64,18 @@ def _stored(db, workspace, size):
             broadcasts=0,
             broadcast_bytes=0,
             peak_bytes=size,
+            current_bytes=size,
         )
     )
     db.commit()
 
 
-def _write(client, key, workspace):
-    return client.post(
+def _storage_full(client, key, workspace):
+    answer = client.post(
         RESOLVE, json={"workspace_slug": workspace["slug"]}, headers={"X-API-KEY": key}
     )
+    assert answer.status_code == 200, answer.text
+    return answer.json()["storage_full"]
 
 
 def test_a_bypassed_account_can_make_more_workspaces_than_its_plan_allows(
@@ -190,20 +193,20 @@ def test_a_bypassed_owner_can_invite_past_the_plans_seats(client, make_user, db_
     assert accepted.status_code == 200, accepted.text
 
 
-def test_new_plots_are_taken_past_the_storage_ceiling_while_bypassed(
+def test_the_storage_ceiling_is_lifted_while_bypassed(
     client, make_user, db_session
 ):
     owner = make_user()
     workspace = _workspace(client, owner).json()
     key = _key(client, owner).json()["raw_key"]
     _stored(db_session, workspace, FREE_STORAGE)
-    assert _write(client, key, workspace).status_code == 402
+    assert _storage_full(client, key, workspace) is not None
 
     _bypass(db_session, owner)
-    assert _write(client, key, workspace).status_code == 200
+    assert _storage_full(client, key, workspace) is None
 
     _bypass(db_session, owner, on=False)
-    assert _write(client, key, workspace).status_code == 402
+    assert _storage_full(client, key, workspace) is not None
 
 
 def test_the_storage_ceiling_is_lifted_for_a_member_writing_into_a_bypassed_owners_workspace(
@@ -219,13 +222,13 @@ def test_the_storage_ceiling_is_lifted_for_a_member_writing_into_a_bypassed_owne
     assert joined.status_code == 200, joined.text
     key = _key(client, member).json()["raw_key"]
     _stored(db_session, workspace, FREE_STORAGE)
-    assert _write(client, key, workspace).status_code == 402
+    assert _storage_full(client, key, workspace) is not None
 
     _bypass(db_session, member)
-    assert _write(client, key, workspace).status_code == 402
+    assert _storage_full(client, key, workspace) is not None
 
     _bypass(db_session, owner)
-    assert _write(client, key, workspace).status_code == 200
+    assert _storage_full(client, key, workspace) is None
 
 
 def test_the_billing_page_shows_no_ceilings_while_bypassed(client, make_user, db_session):
