@@ -1,7 +1,7 @@
 """stripe subscriptions
 
 Revision ID: d2b7e9c41f05
-Revises: c6a1e3f8d247
+Revises: 3cf8fbd2e287
 Create Date: 2026-10-19
 
 """
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 
 
 revision: str = 'd2b7e9c41f05'
-down_revision: Union[str, Sequence[str], None] = 'c6a1e3f8d247'
+down_revision: Union[str, Sequence[str], None] = '3cf8fbd2e287'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
