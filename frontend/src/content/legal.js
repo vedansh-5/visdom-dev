@@ -2,8 +2,8 @@
 
 export const CONTROLLER = {
   name: 'FOSSASIA PTE. LTD.',
-  address: 'REPLACE WITH THE REGISTERED ADDRESS, Singapore',
-  email: 'REPLACE WITH A CONTACT ADDRESS',
+  address: '12 Eu Tong Sen Street #08-169, Singapore 059819',
+  email: 'office@fossasia.org',
 };
 
 export const UPDATED = '19 October 2026';
