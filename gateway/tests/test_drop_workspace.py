@@ -16,12 +16,13 @@ def instances(monkeypatch):
         addresses = list(answers)
         asked = []
 
-        def fake(address, body, timeout):
+        def fake(address, path, body, timeout):
+            assert path == activity.DROP_PATH
             asked.append((address, body))
             return answers[address]
 
         monkeypatch.setattr(activity, "instance_addresses", lambda: addresses)
-        monkeypatch.setattr(activity, "_drop_on", fake)
+        monkeypatch.setattr(activity, "admin_call", fake)
         return asked
     return _set
 
@@ -40,6 +41,15 @@ def test_every_instance_is_asked_and_the_bytes_are_added_up(instances):
     assert all(str(workspace_id).encode() in body for _, body in asked)
 
 
+def test_a_size_that_is_not_a_number_counts_as_nothing(instances):
+    instances({
+        "visdom-1:8097": {"removed": True, "bytes": "n/a"},
+        "visdom-2:8097": {"removed": True, "bytes": 200},
+    })
+
+    assert activity.drop_workspace(uuid.uuid4()) == {"asked": 2, "removed": True, "bytes": 200}
+
+
 def test_one_silent_instance_stops_the_removal(instances):
     instances({"visdom-1:8097": {"removed": True, "bytes": 300}, "visdom-2:8097": None})
 
@@ -51,7 +61,7 @@ def test_one_silent_instance_stops_the_removal(instances):
 
 def test_with_no_instances_there_is_nothing_to_ask(monkeypatch):
     monkeypatch.setattr(activity, "instance_addresses", lambda: [])
-    monkeypatch.setattr(activity, "_drop_on", lambda *a: pytest.fail("nothing should be asked"))
+    monkeypatch.setattr(activity, "admin_call", lambda *a: pytest.fail("nothing should be asked"))
 
     assert activity.drop_workspace(uuid.uuid4())["removed"] is False
 
@@ -128,3 +138,14 @@ def test_an_account_whose_files_cannot_be_removed_waits(client, make_user, make_
     db_session.expire_all()
     assert db_session.query(User).filter(User.id == uuid.UUID(user["id"])).first() is not None
     assert db_session.query(Workspace).filter(Workspace.id == uuid.UUID(workspace["id"])).first() is not None
+
+
+def test_nothing_is_removed_without_the_admin_key(monkeypatch):
+    monkeypatch.setattr(activity.settings, "VISDOM_INTERNAL_ADMIN_KEY", "")
+    monkeypatch.setattr(activity, "instance_addresses", lambda: ["visdom-1:8097"])
+    monkeypatch.setattr(
+        activity.urllib.request, "urlopen", lambda *a, **k: pytest.fail("nothing should be sent")
+    )
+
+    with pytest.raises(activity.FilesKept):
+        activity.drop_workspace(uuid.uuid4())

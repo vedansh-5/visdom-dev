@@ -200,6 +200,12 @@ def login(
             detail="Inactive user."
         )
 
+    if account_deletion.final(user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This account is being deleted.",
+        )
+
     cancelled = account_deletion.cancel(user)
     user.last_login_at = utcnow()
     db.commit()
@@ -466,8 +472,7 @@ def request_account_deletion(
     for ws in preview["leaving_with"]:
         evict_workspace(ws.slug, "this account is being deleted")
 
-    response.delete_cookie(key="refresh_token", path="/api/v1/auth")
-    response.delete_cookie(key="session_token", path="/")
+    _clear_session_cookies(response)
     return {"delete_after": delete_after}
 
 

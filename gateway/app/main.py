@@ -16,6 +16,8 @@ from app.config import settings
 from app.database import SessionLocal
 from app.routers import api_keys, auth, billing, health, usage, visdom, workspaces
 
+FIRST_TICK_SECONDS = 300
+
 
 async def _sample_usage_forever(seconds: int) -> None:
     """Bank what the instances have counted, on a tick.
@@ -41,44 +43,46 @@ async def _sweep_retention_forever(hours: int) -> None:
 
     Slow because nothing here is urgent: a plan that keeps seven days is not
     broken by keeping seven days and an hour. One worker does it, the same way
-    the usage tick does, since several workers sweeping the same workspaces at
-    once would each ask every instance for the same answer.
+    the usage tick does, though under a lock of its own, since several workers
+    sweeping the same workspaces at once would each ask every instance for the
+    same answer.
+
+    The first sweep comes a few minutes after start-up rather than a full
+    interval later, so a gateway restarted more often than that still sweeps.
     """
+    delay = FIRST_TICK_SECONDS
     while True:
-        await asyncio.sleep(hours * 3600)
-        db = SessionLocal()
+        await asyncio.sleep(delay)
+        delay = hours * 3600
         try:
-            if usage_rollup.take_tick(db):
-                summary = await asyncio.to_thread(retention.sweep, db)
-                if summary["with_expired"]:
-                    logging.info(
-                        "retention swept %d workspace(s), removed %d env(s)%s",
-                        summary["with_expired"],
-                        summary["removed"],
-                        "" if retention.enforcing() else " (reporting only)",
-                    )
+            summary = await asyncio.to_thread(retention.sweep_once)
+            if summary and summary["with_expired"]:
+                logging.info(
+                    "retention swept %d workspace(s), removed %d env(s)%s",
+                    summary["with_expired"],
+                    summary["removed"],
+                    "" if retention.enforcing() else " (reporting only)",
+                )
         except Exception:
             logging.exception("retention sweep failed")
-            db.rollback()
-        finally:
-            db.close()
 
 
 async def _delete_accounts_forever(hours: int) -> None:
-    """Remove the accounts whose waiting period has run out, on a slow tick."""
+    """Remove the accounts whose waiting period has run out, on a slow tick.
+
+    Under a lock of its own, held for the whole run, and first run a few
+    minutes after start-up, the same as the retention sweep.
+    """
+    delay = FIRST_TICK_SECONDS
     while True:
-        await asyncio.sleep(hours * 3600)
-        db = SessionLocal()
+        await asyncio.sleep(delay)
+        delay = hours * 3600
         try:
-            if usage_rollup.take_tick(db):
-                erased = await asyncio.to_thread(account_deletion.erase_due, db)
-                if erased:
-                    logging.info("deleted %d account(s) at the end of their waiting period", erased)
+            erased = await asyncio.to_thread(account_deletion.erase_once)
+            if erased:
+                logging.info("deleted %d account(s) at the end of their waiting period", erased)
         except Exception:
             logging.exception("account deletion tick failed")
-            db.rollback()
-        finally:
-            db.close()
 
 
 async def _revoke_due_keys_forever(hours: int) -> None:
@@ -128,6 +132,7 @@ app = FastAPI(
 )
 
 
+# CORS middleware configuration, origin sourced from env (FRONTEND_URL)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[settings.FRONTEND_URL],
@@ -137,6 +142,7 @@ app.add_middleware(
 )
 
 
+# Mount all endpoint routers
 app.include_router(auth.router, prefix="/api/v1")
 app.include_router(api_keys.router, prefix="/api/v1")
 app.include_router(health.router, prefix="/api/v1")

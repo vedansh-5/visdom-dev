@@ -19,22 +19,26 @@ product, because this is the one job whose whole purpose is destroying work.
 
 The instances behind the proxy share one disk, so the sweep has to reach the
 instance that actually holds a workspace. Each one is asked first, in report
-mode, and the one that says it holds it is the one told to remove. When none
-holds it, the workspace is dormant and any instance can sweep its files.
+mode, and the one that says it holds it is the one told to remove. When every
+instance answers and none holds it, the workspace is dormant and any instance
+can sweep its files. When one does not answer, it may be the holder, so the
+workspace waits for the next sweep.
 """
 
 import concurrent.futures
+import contextlib
 import datetime
 import json
 import logging
-import urllib.error
-import urllib.request
+from types import SimpleNamespace
 
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app import bypass
-from app.admin.activity import instance_addresses, internal_request, internal_tls
+from app.admin.activity import RETIRE_PATH, admin_call, instance_addresses
 from app.config import settings
+from app.database import SessionLocal, engine
 from app.models import Plan, User, Workspace, utcnow
 
 logger = logging.getLogger("visdom.retention")
@@ -98,13 +102,7 @@ def ask_instance(address: str, workspace_id, days, dry_run: bool, timeout: float
             "dry_run": dry_run,
         }
     ).encode()
-    request = internal_request(address, "/vis/_retire", settings.VISDOM_INTERNAL_ADMIN_KEY, body)
-    try:
-        with urllib.request.urlopen(request, timeout=timeout, context=internal_tls()) as response:
-            return json.loads(response.read() or b"{}")
-    except (urllib.error.URLError, OSError, ValueError) as exc:
-        logger.warning("could not reach %s about %s: %s", address, workspace_id, exc)
-        return None
+    return admin_call(address, RETIRE_PATH, body, timeout)
 
 
 def _holder(answers: list[tuple[str, dict]]) -> str | None:
@@ -136,8 +134,11 @@ def sweep_workspace(workspace: Workspace, days, enforce: bool, ask=ask_instance,
     if not expired or not enforce:
         return result
 
-    target = _holder(answers) or (addresses[0] if addresses else None)
+    target = _holder(answers)
+    if target is None and len(answers) == len(addresses):
+        target = addresses[0] if addresses else None
     if target is None:
+        logger.warning("retention: %s skipped, an instance did not answer", workspace.slug)
         return result
     done = ask(target, workspace.id, days, False, timeout)
     result["removed"] = (done or {}).get("removed", 0)
@@ -150,13 +151,20 @@ def sweep(db: Session, enforce: bool | None = None, ask=ask_instance) -> dict:
     An account on a plan that keeps everything is skipped without asking any
     instance, which is most of the cost of this when the paid plans are the ones
     with work in them.
+
+    The database is read first and its transaction ended before any instance
+    is asked, so a sweep that waits on slow instances holds nothing open.
     """
     enforce = enforcing() if enforce is None else enforce
-    summary = {"visited": 0, "with_expired": 0, "removed": 0, "workspaces": []}
+    due = []
     for workspace in sweepable(db):
         days = window_for(db, workspace)
-        if not days:
-            continue
+        if days:
+            due.append((SimpleNamespace(id=workspace.id, slug=workspace.slug), days))
+    db.commit()
+
+    summary = {"visited": 0, "with_expired": 0, "removed": 0, "workspaces": []}
+    for workspace, days in due:
         summary["visited"] += 1
         result = sweep_workspace(workspace, days, enforce, ask=ask)
         if not result["expired"]:
@@ -172,6 +180,35 @@ def sweep(db: Session, enforce: bool | None = None, ask=ask_instance) -> dict:
             result["removed"],
         )
     return summary
+
+
+_SWEEP_LOCK = 7234092
+
+
+@contextlib.contextmanager
+def only_sweep(bind=None, key=_SWEEP_LOCK):
+    bind = bind or engine
+    if bind.dialect.name != "postgresql":
+        yield True
+        return
+    with bind.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+        mine = bool(conn.execute(text("SELECT pg_try_advisory_lock(:key)"), {"key": key}).scalar())
+        try:
+            yield mine
+        finally:
+            if mine:
+                conn.execute(text("SELECT pg_advisory_unlock(:key)"), {"key": key})
+
+
+def sweep_once() -> dict | None:
+    with only_sweep() as mine:
+        if not mine:
+            return None
+        db = SessionLocal()
+        try:
+            return sweep(db)
+        finally:
+            db.close()
 
 
 _SOONEST = 0.01
