@@ -61,6 +61,9 @@ def _read_within(response, deadline: float) -> bytes:
 
 
 ACTIVITY_PATH = "/vis/_activity"
+DROP_PATH = "/vis/_drop"
+EVICT_PATH = "/vis/_evict"
+RETIRE_PATH = "/vis/_retire"
 
 
 _reported: set[str] = set()
@@ -109,6 +112,26 @@ def internal_request(address: str, path: str, key: str, body: bytes | None = Non
     return urllib.request.Request(internal_url(address, path), data=body, headers=headers, method=method)
 
 
+def admin_call(address: str, path: str, body: bytes, timeout: float) -> dict | None:
+    if not _setup_is_complete():
+        return None
+    if not settings.VISDOM_INTERNAL_ADMIN_KEY:
+        logging.error("not calling %s on %s: VISDOM_INTERNAL_ADMIN_KEY is not set", path, address)
+        return None
+    request = internal_request(address, path, settings.VISDOM_INTERNAL_ADMIN_KEY, body)
+    deadline = time.monotonic() + timeout
+    try:
+        with urllib.request.urlopen(request, timeout=timeout, context=internal_tls()) as response:
+            answer = json.loads(_read_within(response, deadline) or b"{}")
+    except (urllib.error.URLError, OSError, ValueError) as exc:
+        logging.warning("could not call %s on %s: %s", path, address, exc)
+        return None
+    if not isinstance(answer, dict):
+        logging.warning("%s on %s did not answer in the expected shape", path, address)
+        return None
+    return answer
+
+
 def certificate_days_left(address: str, timeout: float) -> float | None:
     if not _setup_is_complete():
         return None
@@ -124,13 +147,6 @@ def certificate_days_left(address: str, timeout: float) -> float | None:
 
 
 def _ask(address: str, timeout: float) -> tuple[bool, list[dict]]:
-    """One instance's answer, and whether it gave one at all.
-
-    The two are separate because an instance that answers with nothing about a
-    workspace is saying the workspace has never been written to, while an
-    instance that does not answer is saying nothing at all. A page that cannot
-    tell those apart has to call both of them unknown.
-    """
     if not _setup_is_complete():
         return False, []
     request = urllib.request.Request(
@@ -347,21 +363,15 @@ def evict_workspace(slug: str, reason: str | None = None, timeout: float | None 
 
     closed = 0
     with concurrent.futures.ThreadPoolExecutor(max_workers=len(addresses)) as pool:
-        for count in pool.map(lambda a: _tell(a, body, timeout), addresses):
-            closed += count
+        for answer in pool.map(lambda a: admin_call(a, EVICT_PATH, body, timeout), addresses):
+            closed += _closed(answer)
     return closed
 
 
-def _tell(address: str, body: bytes, timeout: float) -> int:
-    """One instance's answer to an eviction, or zero when it did not give one."""
-    if not _setup_is_complete():
-        return 0
-    request = internal_request(address, "/vis/_evict", settings.VISDOM_INTERNAL_ADMIN_KEY, body)
+def _closed(answer: dict | None) -> int:
     try:
-        with urllib.request.urlopen(request, timeout=timeout, context=internal_tls()) as response:
-            return int(json.loads(response.read() or b"{}").get("closed", 0))
-    except (urllib.error.URLError, OSError, ValueError, TypeError) as exc:
-        logging.warning("could not evict %s on %s: %s", body, address, exc)
+        return int((answer or {}).get("closed", 0))
+    except (TypeError, ValueError):
         return 0
 
 
@@ -388,7 +398,7 @@ def drop_workspace(workspace_id, timeout: float | None = None) -> dict:
 
     body = json.dumps({"workspace_id": str(workspace_id)}).encode()
     with concurrent.futures.ThreadPoolExecutor(max_workers=len(addresses)) as pool:
-        answers = list(pool.map(lambda a: _drop_on(a, body, timeout), addresses))
+        answers = list(pool.map(lambda a: admin_call(a, DROP_PATH, body, timeout), addresses))
 
     silent = [address for address, answer in zip(addresses, answers, strict=True) if answer is None]
     if silent:
@@ -399,17 +409,12 @@ def drop_workspace(workspace_id, timeout: float | None = None) -> dict:
     for answer in answers:
         if answer.get("removed"):
             result["removed"] = True
-            result["bytes"] += int(answer.get("bytes") or 0)
+            result["bytes"] += _bytes(answer)
     return result
 
 
-def _drop_on(address: str, body: bytes, timeout: float) -> dict | None:
-    if not _setup_is_complete():
-        return None
-    request = internal_request(address, "/vis/_drop", settings.VISDOM_INTERNAL_ADMIN_KEY, body)
+def _bytes(answer: dict) -> int:
     try:
-        with urllib.request.urlopen(request, timeout=timeout, context=internal_tls()) as response:
-            return json.loads(response.read() or b"{}")
-    except (urllib.error.URLError, OSError, ValueError, TypeError) as exc:
-        logging.warning("could not drop %s on %s: %s", body, address, exc)
-        return None
+        return max(int(answer.get("bytes") or 0), 0)
+    except (TypeError, ValueError):
+        return 0

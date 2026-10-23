@@ -64,8 +64,8 @@ def test_the_calls_that_change_data_are_signed_with_the_admin_key(monkeypatch):
     monkeypatch.setattr(activity.settings, "VISDOM_INTERNAL_READ_KEY", "read-key")
     monkeypatch.setattr(activity.settings, "VISDOM_INTERNAL_ADMIN_KEY", "admin-key")
 
-    activity._tell("visdom-1:8097", b'{"workspace_slug": "alpha"}', 1.0)
-    activity._drop_on("visdom-1:8097", b'{"workspace_id": "ws-a"}', 1.0)
+    activity.admin_call("visdom-1:8097", activity.EVICT_PATH, b'{"workspace_slug": "alpha"}', 1.0)
+    activity.admin_call("visdom-1:8097", activity.DROP_PATH, b'{"workspace_id": "ws-a"}', 1.0)
     retention.ask_instance("visdom-1:8097", "ws-a", 7, True, 1.0)
 
     assert [request.full_url for request in sent] == [

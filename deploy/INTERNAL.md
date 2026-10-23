@@ -8,20 +8,26 @@ that, every request is signed and the port only speaks TLS.
 
 ## Signing
 
-There are two keys. The gateway signs reads (`/_activity`) with
-`VISDOM_INTERNAL_READ_KEY`, and everything that closes sockets or removes data
-(`/_evict`, `/_retire`, `/_drop`) with `VISDOM_INTERNAL_ADMIN_KEY`. A read key
-can never delete anything. Compose hands each key to the instances along with
-its `_PREVIOUS` one. A signature is good for 60 seconds.
+The gateway signs each call with `VISDOM_INTERNAL_READ_KEY`. Visdom accepts the
+keys in `VISDOM_INTERNAL_READ_KEYS`, which compose fills with the current key
+and `VISDOM_INTERNAL_READ_KEY_PREVIOUS`. A signature is good for 60 seconds.
 
-Make each key with `openssl rand -hex 32`. Compose refuses to start without
-them, and the gateway sends nothing until the read key and `internal-ca.pem`
-are in place; `/api/v1/health/components` names what is missing. To replace one:
+Make a key with `openssl rand -hex 32`. Compose refuses to start without one,
+and the gateway sends nothing until both the key and `internal-ca.pem` are in
+place; `/api/v1/health/components` names what is missing. To replace it:
 
-1. Copy the current key into its `_PREVIOUS` setting and put a new one in its
-   place.
+1. Copy the current key into `VISDOM_INTERNAL_READ_KEY_PREVIOUS` and put a new
+   one in `VISDOM_INTERNAL_READ_KEY`.
 2. `docker compose up -d` recreates the instances and the gateway with both.
-3. Clear the `_PREVIOUS` setting and run `docker compose up -d` again.
+3. Clear `VISDOM_INTERNAL_READ_KEY_PREVIOUS` and run `docker compose up -d` again.
+
+The calls that change something, closing a workspace's tabs, removing old
+environments and removing a deleted workspace's files, are signed with
+`VISDOM_INTERNAL_ADMIN_KEY` instead, which visdom checks against
+`VISDOM_INTERNAL_ADMIN_KEYS`. It is a separate key so the read key alone cannot
+remove anything. Make and replace it the same way, with
+`VISDOM_INTERNAL_ADMIN_KEY_PREVIOUS`. Without it, nothing is removed: a
+workspace or account deletion answers that it could not be done right now.
 
 ## TLS
 
