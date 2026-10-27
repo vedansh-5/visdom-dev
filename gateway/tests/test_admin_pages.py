@@ -2434,3 +2434,37 @@ def test_overview_links_follow_where_the_panel_is_mounted(db_session, monkeypatc
     assert page.status_code == 200
     assert "/staff/user/list" in page.text
     assert "/admin/user/list" not in page.text
+
+
+def test_a_deleted_account_is_named_by_email_and_username(admin_client):
+    from app.models import AdminAction
+
+    db = admin_client.staff_db
+    db.add(
+        AdminAction(
+            id=uuid.uuid4(),
+            action="delete",
+            model="User",
+            row_id=str(uuid.uuid4()),
+            changes={"email": "gone@example.com", "username": "gone-user"},
+        )
+    )
+    db.commit()
+
+    trail = admin_client.get("/admin/admin-action/list", follow_redirects=False)
+    assert trail.status_code == 200
+    assert "Deleted account gone@example.com (gone-user)." in trail.text
+
+
+def test_a_deleted_account_with_no_name_kept_does_not_show_its_id(admin_client):
+    from app.models import AdminAction
+
+    row_id = str(uuid.uuid4())
+    db = admin_client.staff_db
+    db.add(AdminAction(id=uuid.uuid4(), action="delete", model="User", row_id=row_id, changes={}))
+    db.commit()
+
+    trail = admin_client.get("/admin/admin-action/list", follow_redirects=False)
+    assert trail.status_code == 200
+    assert "Deleted account (name not recorded)." in trail.text
+    assert row_id not in trail.text

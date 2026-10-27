@@ -33,7 +33,9 @@ class FakeStripe:
         self.calls = []
         self.sessions = {}
         self.subscriptions = {}
+        self.open_sessions = []
         self.fail = False
+        self.fail_after = None
         self.busy = 0
         self.v1 = type("V1", (), {})()
         self.v1.customers = self._Section(self, "customers")
@@ -60,7 +62,17 @@ class FakeStripe:
         def cancel(self, found_id, params=None, options=None):
             return self.owner.act(self.name, "cancel", found_id, options)
 
+        def list(self, params=None, options=None):
+            return self.owner.act(self.name, "list", params, options)
+
+        def expire(self, found_id, params=None, options=None):
+            return self.owner.act(self.name, "expire", found_id, options)
+
     def act(self, section, verb, args, options):
+        if self.fail_after is not None:
+            if self.fail_after == 0:
+                raise stripe.APIConnectionError("no network")
+            self.fail_after -= 1
         if self.fail:
             raise stripe.APIConnectionError("no network")
         self.calls.append((section, verb, args, options))
@@ -70,7 +82,13 @@ class FakeStripe:
                 raise stripe.APIError("another in-progress request is using this key", http_status=409)
             return Found(id="cus_test_1")
         if section == "sessions" and verb == "create":
+            self.open_sessions.append("cs_test_abc")
             return Found(id="cs_test_abc", client_secret="cs_test_abc_secret_x")
+        if section == "sessions" and verb == "list":
+            return Found(data=[Found(id=found_id) for found_id in self.open_sessions])
+        if section == "sessions" and verb == "expire":
+            self.open_sessions.remove(args)
+            return Found(id=args, status="expired")
         if section == "sessions" and verb == "retrieve":
             if args not in self.sessions:
                 raise stripe.InvalidRequestError("No such checkout session", "id")
@@ -78,8 +96,21 @@ class FakeStripe:
         if section == "portal":
             return Found(url="https://billing.stripe.com/p/session/test")
         if section == "subscriptions":
+            if verb in ("retrieve", "update", "cancel"):
+                found_id = args[0] if verb == "update" else args
+                if found_id not in self.subscriptions:
+                    raise stripe.InvalidRequestError("No such subscription", "id")
+                if verb != "retrieve" and self.subscriptions[found_id]["status"] == "canceled":
+                    raise stripe.InvalidRequestError("A canceled subscription can only update its metadata", None)
             if verb == "retrieve":
                 return Found(self.subscriptions[args])
+            if verb == "list":
+                found = [
+                    Found(s)
+                    for s in self.subscriptions.values()
+                    if s["customer"] == args["customer"] and args.get("status") in ("all", s["status"])
+                ]
+                return Found(data=found[: args.get("limit", 10)])
             if verb == "update":
                 found_id, params = args
                 self.subscriptions[found_id].update(params)
@@ -194,6 +225,44 @@ def test_checkout_makes_one_customer_and_an_embedded_session(client, make_user, 
     assert created["line_items"] == [{"price": "price_pro", "quantity": 1}]
     assert created["adaptive_pricing"] == {"enabled": False}
     assert created["return_url"].endswith("/?tab=billing&checkout={CHECKOUT_SESSION_ID}")
+
+
+def test_a_new_checkout_closes_the_one_left_open(client, make_user, fake):
+    user = make_user()
+    client.post(f"{BILLING}/checkout", json={"tier": "pro"}, headers=user["headers"])
+    again = client.post(f"{BILLING}/checkout", json={"tier": "pro"}, headers=user["headers"])
+
+    assert again.status_code == 200
+    assert ("sessions", "expire", "cs_test_abc", None) in fake.calls
+    assert fake.open_sessions == ["cs_test_abc"]
+
+
+def test_checkout_is_refused_when_stripe_already_has_a_paid_plan(client, make_user, fake, db_session):
+    user = make_user()
+    _account(db_session, user).stripe_customer_id = "cus_test_1"
+    db_session.commit()
+    fake.subscriptions["sub_1"] = _subscription()
+
+    refused = client.post(f"{BILLING}/checkout", json={"tier": "pro"}, headers=user["headers"])
+
+    assert refused.status_code == 409
+    assert not [call for call in fake.calls if call[:2] == ("sessions", "create")]
+    assert db_session.get(Subscription, "sub_1").status == "active"
+    assert _account(db_session, user).tier == "pro"
+
+
+def test_checkout_finds_a_paid_plan_behind_many_ended_ones(client, make_user, fake, db_session):
+    user = make_user()
+    _account(db_session, user).stripe_customer_id = "cus_test_1"
+    db_session.commit()
+    for n in range(25):
+        fake.subscriptions[f"sub_old_{n}"] = _subscription(f"sub_old_{n}", status="canceled")
+    fake.subscriptions["sub_1"] = _subscription(status="past_due")
+
+    refused = client.post(f"{BILLING}/checkout", json={"tier": "pro"}, headers=user["headers"])
+
+    assert refused.status_code == 409
+    assert not [call for call in fake.calls if call[:2] == ("sessions", "create")]
 
 
 def test_checkout_waits_for_a_customer_another_request_is_making(client, make_user, fake, db_session, monkeypatch):
@@ -448,6 +517,45 @@ def test_asking_to_delete_the_account_stops_the_renewal(client, make_user, fake,
     assert db_session.get(Subscription, "sub_1").ends_at is not None
 
 
+def test_a_checkout_finished_after_asking_to_delete_does_not_renew(client, make_user, fake, db_session):
+    user = make_user()
+    _account(db_session, user).stripe_customer_id = "cus_test_1"
+    db_session.commit()
+    asked = client.post("/api/v1/auth/me/deletion", json={"password": user["password"]}, headers=user["headers"])
+    assert asked.status_code == 202, asked.text
+
+    fake.subscriptions["sub_1"] = _subscription()
+    assert _send(client, "customer.subscription.created", {"id": "sub_1"}).status_code == 200
+
+    assert fake.subscriptions["sub_1"]["cancel_at_period_end"] is True
+    assert db_session.get(Subscription, "sub_1").ends_at is not None
+
+
+def test_nothing_is_for_sale_without_a_webhook_secret(client, fake, monkeypatch):
+    assert payments.setup_gap() is None
+    monkeypatch.setattr(settings, "STRIPE_WEBHOOK_SECRET", "")
+
+    assert "STRIPE_WEBHOOK_SECRET" in payments.setup_gap()
+    assert not any(plan["checkout"] for plan in _plans(client).values())
+
+
+def test_a_renewal_stopped_before_stripe_failed_is_kept(client, make_user, fake, db_session):
+    user = make_user()
+    _paying(client, db_session, fake, user)
+    fake.subscriptions["sub_2"] = _subscription("sub_2")
+    assert _send(client, "customer.subscription.created", {"id": "sub_2"}).status_code == 200
+    fake.fail_after = 1
+
+    asked = client.post("/api/v1/auth/me/deletion", json={"password": user["password"]}, headers=user["headers"])
+
+    assert asked.status_code == 502
+    db_session.expire_all()
+    stopped = [sid for sid in ("sub_1", "sub_2") if fake.subscriptions[sid]["cancel_at_period_end"]]
+    assert len(stopped) == 1
+    assert db_session.get(Subscription, stopped[0]).ends_at is not None
+    assert _account(db_session, user).deletion_requested_at is None
+
+
 def test_deletion_is_not_started_when_the_plan_cannot_be_stopped(client, make_user, fake, db_session):
     user = make_user()
     _paying(client, db_session, fake, user)
@@ -465,6 +573,41 @@ def test_removing_the_account_cancels_the_plan_first(client, make_user, fake, db
     assert fake.subscriptions["sub_1"]["status"] == "canceled"
     assert db_session.query(User).filter(User.email == user["email"]).first() is None
     assert db_session.query(Subscription).count() == 0
+
+
+def test_a_plan_stripe_already_ended_does_not_hold_up_a_deletion(client, make_user, fake, db_session):
+    user = make_user()
+    _paying(client, db_session, fake, user)
+    fake.subscriptions["sub_1"]["status"] = "canceled"
+
+    asked = client.post("/api/v1/auth/me/deletion", json={"password": user["password"]}, headers=user["headers"])
+
+    assert asked.status_code == 202, asked.text
+    db_session.expire_all()
+    assert db_session.get(Subscription, "sub_1").status == "canceled"
+    assert _account(db_session, user).tier == "free"
+
+
+def test_a_plan_stripe_no_longer_knows_does_not_hold_up_a_deletion(client, make_user, fake, db_session):
+    user = make_user()
+    _paying(client, db_session, fake, user)
+    del fake.subscriptions["sub_1"]
+
+    asked = client.post("/api/v1/auth/me/deletion", json={"password": user["password"]}, headers=user["headers"])
+
+    assert asked.status_code == 202, asked.text
+    db_session.expire_all()
+    assert db_session.get(Subscription, "sub_1").status == "canceled"
+
+
+def test_an_account_whose_plan_stripe_already_ended_is_removed(client, make_user, fake, db_session):
+    user = make_user()
+    _paying(client, db_session, fake, user)
+    fake.subscriptions["sub_1"]["status"] = "canceled"
+
+    account_deletion.remove(db_session, _account(db_session, user), "test")
+
+    assert db_session.query(User).filter(User.email == user["email"]).first() is None
 
 
 def test_an_account_whose_plan_cannot_be_cancelled_is_kept(client, make_user, fake, db_session):
