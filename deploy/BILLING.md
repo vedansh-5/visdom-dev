@@ -1,12 +1,14 @@
 # Taking payment for plans
 
-Paid plans are sold through Stripe. The card form is Stripe's own, shown inside
-the Billing tab, so card details never reach this server. What the server keeps
+Paid plans are sold through Stripe. The payment form is Stripe's own, shown
+inside the Billing tab, so payment details never reach this server. What the server keeps
 is the Stripe customer and subscription ids, the plan, its status and its
 renewal date.
 
-Until the Stripe keys are set, nothing can be bought: paid plans show "Not
-available yet" and only free plans can be picked.
+Until the two Stripe keys and the webhook secret are all set, nothing can be
+bought: paid plans show "Not available yet" and only free plans can be picked.
+Without the webhook secret, changes made in Stripe's customer portal could not
+reach the gateway, so payments stay off and the gateway says so when it starts.
 
 ## How it behaves
 
@@ -72,12 +74,13 @@ Install the Stripe CLI, sign in with `stripe login`, then forward events to the
 local gateway:
 
 ```
-stripe listen --forward-to localhost:8085/api/v1/billing/webhook
+stripe listen --forward-to localhost:8085/api/v1/billing/webhook \
+  --events checkout.session.completed,customer.subscription.created,customer.subscription.updated,customer.subscription.deleted,customer.subscription.paused,customer.subscription.resumed
 ```
 
-It prints a `whsec_` secret for this session; put it in `gateway/.env` as
-`STRIPE_WEBHOOK_SECRET`. Without it the plan still updates when the browser
-comes back from checkout, but changes made in the portal will not arrive.
+It prints a `whsec_` secret for this session. Put it in `STRIPE_WEBHOOK_SECRET`
+in `gateway/.env` when the gateway runs with uvicorn, which is what listens on
+port 8085, or in the root `.env` when it runs under docker compose.
 
 Test cards, with any future expiry date and any CVC:
 
@@ -91,5 +94,5 @@ Test cards, with any future expiry date and any CVC:
 ## Going live
 
 Repeat steps 1 to 5 in live mode. The live price ids are different from the
-test ones, so update each plan's Stripe price in the admin console at the same
-time as the keys change.
+test ones, so update each plan's Stripe price at the same time as the keys
+change.

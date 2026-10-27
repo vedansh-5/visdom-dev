@@ -20,6 +20,7 @@ from app.config import settings
 from app.models import Plan, Subscription, User, utcnow
 
 LIVE = ("active", "trialing", "past_due")
+ENDED = ("canceled", "incomplete_expired")
 
 SUBSCRIPTION_EVENTS = {
     "customer.subscription.created",
@@ -44,8 +45,22 @@ class PaymentsDown(RuntimeError):
     pass
 
 
-def enabled() -> bool:
+class AlreadyPaying(RuntimeError):
+    pass
+
+
+def _keys_set() -> bool:
     return bool(settings.STRIPE_SECRET_KEY and settings.STRIPE_PUBLISHABLE_KEY)
+
+
+def enabled() -> bool:
+    return _keys_set() and bool(settings.STRIPE_WEBHOOK_SECRET)
+
+
+def setup_gap() -> str | None:
+    if _keys_set() and not settings.STRIPE_WEBHOOK_SECRET:
+        return "The Stripe keys are set but STRIPE_WEBHOOK_SECRET is not, so payments stay off"
+    return None
 
 
 @functools.lru_cache(maxsize=1)
@@ -118,6 +133,19 @@ def _new_customer(v1, user: User):
 
 def start_checkout(db: Session, user: User, plan: Plan) -> dict:
     customer = customer_for(db, user)
+    db.query(User).filter(User.id == user.id).with_for_update().populate_existing().first()
+    for status in LIVE:
+        held = _call(
+            lambda v1, wanted=status: v1.subscriptions.list(params={"customer": customer, "status": wanted, "limit": 1})
+        )
+        if held.data:
+            record(db, _plain(held.data[0]))
+            raise AlreadyPaying("You already have a paid plan. Change it from Manage billing.")
+    left_open = _call(
+        lambda v1: v1.checkout.sessions.list(params={"customer": customer, "status": "open", "limit": 20})
+    )
+    for stale in left_open.data:
+        _call(lambda v1, sid=stale.id: v1.checkout.sessions.expire(sid))
     tags = {"user_id": str(user.id), "plan_id": plan.id}
     session = _call(
         lambda v1: v1.checkout.sessions.create(
@@ -226,6 +254,9 @@ def record(db: Session, found: dict) -> Subscription | None:
         "updated_at": utcnow(),
     }
     row = _write(db, found["id"], user, fields)
+    if user.deletion_requested_at is not None and row.status in LIVE and row.ends_at is None:
+        _call(lambda v1: v1.subscriptions.update(row.id, params={"cancel_at_period_end": True}))
+        row.ends_at = row.current_period_end
     settle_tier(db, user)
     db.commit()
     return row
@@ -282,17 +313,52 @@ def resume_renewing(db: Session, user: User) -> Subscription | None:
     return record(db, _plain(found))
 
 
+def _ended_at_stripe(db: Session, user: User, row: Subscription) -> bool:
+    try:
+        found = _plain(_client().v1.subscriptions.retrieve(row.id))
+    except stripe.InvalidRequestError:
+        row.status = "canceled"
+        row.ends_at = utcnow()
+        settle_tier(db, user)
+        db.commit()
+        return True
+    except stripe.StripeError as exc:
+        logging.warning("stripe call failed: %s", exc)
+        raise PaymentsDown("The payment provider could not be reached. Try again shortly.") from exc
+    if found.get("status") not in ENDED:
+        return False
+    record(db, found)
+    return True
+
+
+def _change(db: Session, user: User, row: Subscription, make) -> bool:
+    try:
+        make(_client().v1)
+    except stripe.InvalidRequestError as exc:
+        if _ended_at_stripe(db, user, row):
+            return False
+        logging.warning("stripe call failed: %s", exc)
+        raise PaymentsDown("The payment provider could not be reached. Try again shortly.") from exc
+    except stripe.StripeError as exc:
+        logging.warning("stripe call failed: %s", exc)
+        raise PaymentsDown("The payment provider could not be reached. Try again shortly.") from exc
+    return True
+
+
 def stop_renewing(db: Session, user: User) -> None:
     for row in _open(db, user):
-        _call(lambda v1, sid=row.id: v1.subscriptions.update(sid, params={"cancel_at_period_end": True}))
-        row.ends_at = row.current_period_end
+        if _change(
+            db, user, row, lambda v1, sid=row.id: v1.subscriptions.update(sid, params={"cancel_at_period_end": True})
+        ):
+            row.ends_at = row.current_period_end
+            db.commit()
 
 
 def end_now(db: Session, user: User) -> None:
     for row in _open(db, user):
-        _call(lambda v1, sid=row.id: v1.subscriptions.cancel(sid))
-        row.status = "canceled"
-        row.ends_at = utcnow()
+        if _change(db, user, row, lambda v1, sid=row.id: v1.subscriptions.cancel(sid)):
+            row.status = "canceled"
+            row.ends_at = utcnow()
 
 
 def _open(db: Session, user: User) -> list:
@@ -300,7 +366,7 @@ def _open(db: Session, user: User) -> list:
         db.query(Subscription)
         .filter(
             Subscription.user_id == user.id,
-            Subscription.status.notin_(("canceled", "incomplete_expired")),
+            Subscription.status.notin_(ENDED),
         )
         .all()
     )

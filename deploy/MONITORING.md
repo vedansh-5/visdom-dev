@@ -10,7 +10,7 @@ There are two endpoints, and they answer different questions.
 | Endpoint | Asks | Use it for |
 |---|---|---|
 | `/api/v1/health` | is the gateway up and is the database reachable | a frequent, cheap poll |
-| `/api/v1/health/components` | that, plus is every visdom instance answering | the alert that matters |
+| `/api/v1/health/components` | that, plus is every visdom instance answering, is the internal certificate valid, and is metering running | the alert that matters |
 
 The second one exists because the first stays green in a state that is useless
 to a user: the console loads, sign-in works, and not one plot does, because the
@@ -21,8 +21,25 @@ catches it.
 A healthy answer:
 
 ```json
-{"status": "healthy", "checks": {"database": "ok", "visdom": "3 of 3 answering", "metering": "ok"}}
+{"status": "healthy", "checks": {"database": "ok", "visdom": "3 of 3 answering", "visdom_speed": "answered in 12 ms", "load": "0.31 per core over 5 minutes", "internal_certificate": "712 days left", "metering": "ok"}}
 ```
+
+An `internal_setup` entry appears, and the answer turns 503, when the gateway
+is missing the internal key or certificate it needs to reach the instances. An
+`internal_certificate` with fewer than 30 days left also turns it 503. See
+`INTERNAL.md` for both.
+
+It also answers 503 when the machine is overloaded, so the same monitor tells
+you when it is time for a bigger machine:
+
+- `visdom_speed`: the visdom instances took a second or more to answer. A
+  healthy instance answers in milliseconds, so this means plots are reaching
+  people late.
+- `load`: the machine's 5 minute load average is at or above one per core,
+  meaning every core has been busy for minutes, not for a moment.
+
+Both are logged as warnings too. If one fires and nothing is broken, the box
+needs more cores.
 
 **Setting it up**, about five minutes: make a free account at uptimerobot.com or
 betterstack.com, add an HTTPS monitor on
@@ -71,7 +88,13 @@ only for instances that also restarted, since the rest keep counting.
 
 ## What is still not watched
 
-- **Certificate expiry.** Caddy renews on its own, and an expired certificate
-  would show up as the uptime check failing, which is late but not silent.
-- **Slow.** These checks are up or down only. A deployment that answers every
-  request in nine seconds is "up" to both of them.
+- **The public certificate's expiry.** Whatever terminates HTTPS in front of the
+  stack (Caddy on the test deployment) renews on its own, and an expired
+  certificate would show up as the uptime check failing, which is late but not
+  silent. The internal certificate is watched, see above.
+- **The retention sweep and account deletion.** They run inside the gateway like
+  metering, but leave no timestamp, so one that stopped would not show here.
+  `docker compose logs gateway | grep -i -e retention -e deletion` shows what
+  they removed and any run that failed.
+- **A slow console.** The speed check times visdom, not the gateway, so console
+  pages that take seconds while visdom answers quickly still look healthy.

@@ -132,7 +132,7 @@ def can_bypass_limits(role):
     """Whether this role may bypass plan limits, for one account or for all.
 
     A bypass hands out everything a plan holds back, storage included, so it
-    sits with the one role that can change the plans themselves.
+    sits with superadmins only.
     """
     return "bypass_limits" in editable_fields(role, "User")
 

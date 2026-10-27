@@ -260,11 +260,7 @@ class UserAdmin(ChangeableView, model=User):
         "tier": {"label": "Plan", "choices": lambda: _tier_choices()},
         "bypass_limits": {
             "label": "Bypass plan limits",
-            "description": (
-                "Superadmins only. Holds this account to no limit at all until it is switched off: "
-                "workspaces, members, API keys, storage and how long work is kept. "
-                "The plan itself is left as it is."
-            ),
+            "description": "Superadmins only. Lifts every plan limit for this account until switched off.",
         },
         "password_hash": {
             "label": "Set a new password",
@@ -1654,7 +1650,7 @@ class LimitBypassView(BaseView):
     account's own form. Every account is a promotion: it reaches accounts that
     register later too, and it removes the storage ceilings for the whole
     platform. Either way it hands out what the plans hold back, so the page is
-    for the one role that can change the plans.
+    for superadmins only.
 
     Both are switches rather than plan changes on purpose. Nothing about any
     account's plan is touched, so switching off puts back exactly what was
@@ -2154,12 +2150,17 @@ def _audit_subject(model, name):
     if label is not None:
         return label
 
-    recorded = (model.changes or {}).get("purged_from_trash")
+    changes = model.changes or {}
+    recorded = changes.get("purged_from_trash")
     if recorded:
         return f"{recorded} (purged)"
-    named = (model.changes or {}).get("email")
+    email, username = changes.get("email"), changes.get("username")
+    named = f"{email} ({username})" if email and username else email or username
+    deleting = str(model.action or "").lower() == "delete"
     if named:
-        return f"{named} (deleted)"
+        return named if deleting else f"{named} (deleted)"
+    if kind == "user":
+        return "(name not recorded)" if deleting else "(deleted, name not recorded)"
     return f"{model.row_id} (deleted)"
 
 
