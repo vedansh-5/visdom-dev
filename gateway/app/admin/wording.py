@@ -111,7 +111,9 @@ def sentence(action, model, changes, subject) -> str:
         done.update({"id", "is_active", "password_hash"})
     elif verb == "delete":
         if key == "user":
-            lead = f"Deleted account {changes.get('email') or subject} for good"
+            email, username = changes.get("email"), changes.get("username")
+            named = f"{email} ({username})" if email and username else email or subject
+            lead = f"Deleted account {named} for good"
             if changes.get("reason"):
                 lead += f" ({changes['reason']})"
             removed = changes.get("workspaces_removed") or []
