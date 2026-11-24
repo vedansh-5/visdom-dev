@@ -17,10 +17,16 @@ it('links home from the header and groups public destinations in the footer', ()
   mount();
   expect(within(screen.getByRole('banner')).getByRole('link', { name: 'Visdom home' })).toHaveAttribute('href', '/');
   const footer = within(screen.getByRole('contentinfo'));
-  for (const [name, path] of [['Pricing', '/pricing'], ['Terms', '/terms'], ['Contact us', '/contact']]) {
+  for (const [name, path] of [['Pricing', '/pricing'], ['Privacy', '/privacy'], ['Terms', '/terms'], ['Contact us', '/contact']]) {
     expect(footer.getByRole('link', { name })).toHaveAttribute('href', path);
   }
-  expect(footer.getByText('visdom.dev is run by FOSSASIA PTE. LTD., Singapore.')).toBeVisible();
+  expect(footer.queryByRole('link', { name: 'Wikimedia Commons' })).toBeNull();
+  expect(screen.getByRole('contentinfo')).toHaveTextContent('visdom.dev is run by FOSSASIA PTE. LTD., Singapore.');
+  for (const name of ['FOSSASIA PTE. LTD.', `© ${new Date().getFullYear()} FOSSASIA`]) {
+    const link = footer.getByRole('link', { name });
+    expect(link).toHaveAttribute('href', 'https://fossasia.org');
+    expect(link).toHaveAttribute('rel', 'noopener');
+  }
 });
 
 it.each([
@@ -41,7 +47,6 @@ it.each([
       expect(region.queryByRole('link', { name: 'Open dashboard' })).toBeNull();
     }
   }
-  expect(footer.getByText('Summit photo by Michael Cannon')).toBeVisible();
   const user = userEvent.setup();
   const trigger = screen.getByRole('button', { name: 'Menu' });
   const panel = document.querySelector('dialog');

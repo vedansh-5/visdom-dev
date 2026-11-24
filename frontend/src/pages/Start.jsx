@@ -56,24 +56,15 @@ const Start = () => {
         <FeatureDemos />
 
         <section className="st-open st-inner" aria-labelledby="st-open-h">
-          <figure className="st-open-pic">
-            <img
-              src="/start/fossasia-summit-2019.jpg"
-              alt="Group photo of the FOSSASIA Summit 2019 at the Lifelong Learning Institute, Singapore"
-              width="1600"
-              height="737"
-              loading="lazy"
-            />
-            <figcaption>FOSSASIA Summit 2019, Singapore</figcaption>
-          </figure>
-          <div className="st-open-txt">
-            <h2 id="st-open-h">Built in the open</h2>
-            <p>Visdom is open source and run by FOSSASIA. Want your own server instead? Install Visdom with pip and run it on your machine, the same as always.</p>
-            <p>Everything behind visdom.dev is open source too.</p>
-            <div className="st-open-links">
-              <a href={GITHUB_VISDOM} className="st-btn st-btn-ink">fossasia/visdom</a>
-              <a href={GITHUB_VISDOM_DEV} className="st-btn st-btn-ink">fossasia/visdom-dev</a>
-            </div>
+          <h2 id="st-open-h">Built in the open</h2>
+          <p>
+            Visdom is open source and run by <a href="https://fossasia.org" rel="noopener">FOSSASIA</a>.{' '}
+            Want your own server instead? Install Visdom with pip and run it on your machine, the same as always.
+          </p>
+          <p>Everything behind visdom.dev is open source too.</p>
+          <div className="st-open-links">
+            <a href={GITHUB_VISDOM} className="st-btn st-btn-ink">fossasia/visdom</a>
+            <a href={GITHUB_VISDOM_DEV} className="st-btn st-btn-ink">fossasia/visdom-dev</a>
           </div>
         </section>
 

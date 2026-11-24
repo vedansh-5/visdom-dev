@@ -67,7 +67,7 @@ it('ticks only while the board is visible and motion is enabled', () => {
   motion.matches = false;
   vi.stubGlobal('matchMedia', () => motion);
   renderStart();
-  const step = () => within(board()).getByText(/step [\d,]+/i).textContent;
+  const step = () => within(board()).getByText(/step [\d,]+/i).textContent.match(/[\d,]+$/)[0];
   const tick = () => act(() => vi.advanceTimersByTime(700));
   const first = step();
   tick();
@@ -93,4 +93,93 @@ it('ticks only while the board is visible and motion is enabled', () => {
   fireEvent(motion, new Event('change'));
   tick();
   expect(step()).not.toBe(second);
+  fireEvent.click(within(board()).getByRole('button', { name: 'Pause training loss' }));
+  const paused = step();
+  tick();
+  expect(step()).toBe(paused);
+  fireEvent.click(within(board()).getByRole('button', { name: 'Resume training loss' }));
+  act(() => shown(false));
+  tick();
+  expect(step()).toBe(paused);
+  act(() => shown(true));
+  tick();
+  expect(step()).not.toBe(paused);
+});
+
+it('makes every heatmap and sample batch a single keyboard stop with pane-specific labels', () => {
+  vi.stubGlobal('innerWidth', 2560);
+  renderStart();
+  for (const [title, readout] of [
+    ['Confusion matrix', /true 0 · predicted 0/],
+    ['Class predictions', /class 0 · predicted 0/],
+    ['Attention weights', /query token 0 · key token 0/],
+    ['Class attention', /query token 0 · key token 0/],
+    ...['Sample batch', 'Validation batch', 'Augmented batch', 'Training batch · ViT',
+      'Validation batch · ViT', 'Validation samples'].map(title => [title, /label \d · pred \d/]),
+  ]) {
+    const grid = within(board()).getByRole('slider', { name: title });
+    expect(grid.tabIndex).toBe(0);
+    expect(grid.querySelectorAll('[tabindex]')).toHaveLength(0);
+    fireEvent.focus(grid);
+    expect(grid).toHaveAttribute('aria-valuetext', expect.stringMatching(readout));
+  }
+});
+
+it('reads the colour of the hovered heat cell and moves through rows and columns', () => {
+  renderStart();
+  const grid = within(board()).getByRole('slider', { name: 'Confusion matrix' });
+  const cells = grid.querySelectorAll('i');
+  fireEvent.pointerMove(cells[21], { pointerType: 'mouse' });
+  const alpha = Number(cells[21].style.backgroundColor.match(/[\d.]+(?=\)$)/)[0]);
+  const readout = `true 2 · predicted 5 · ${alpha.toFixed(2)}`;
+  expect(within(grid).getByText(readout)).toBeVisible();
+  expect(cells[21]).toHaveClass('st-selected-tile');
+  expect(grid).toHaveAttribute('aria-valuetext', readout);
+  for (const [key, point] of [['ArrowUp', 14], ['ArrowLeft', 13], ['ArrowDown', 21],
+    ['ArrowRight', 22], ['Home', 1], ['ArrowLeft', 1], ['End', 64], ['ArrowRight', 64]]) {
+    fireEvent.keyDown(grid, { key });
+    expect(grid).toHaveAttribute('aria-valuenow', String(point));
+  }
+  fireEvent.pointerLeave(grid, { pointerType: 'mouse' });
+  expect(grid.querySelector('.st-readout')).toBeNull();
+  fireEvent.pointerDown(cells[12], { pointerType: 'touch' });
+  fireEvent.pointerLeave(grid, { pointerType: 'touch' });
+  expect(grid.querySelector('.st-readout')).toBeVisible();
+  fireEvent.blur(grid);
+  expect(grid.querySelector('.st-readout')).toBeNull();
+});
+
+it('inspects the drawn digit on tap, keeps the touch selection and clears it on blur', () => {
+  renderStart();
+  const grid = within(board()).getByRole('slider', { name: 'Sample batch' });
+  const tiles = grid.querySelectorAll('svg');
+  const path = tiles[2].querySelector('path');
+  expect(path).toHaveAttribute('d', 'M5 6h15L9 22');
+  fireEvent.pointerDown(path, { pointerType: 'touch' });
+  const readout = within(grid).getByText(/^label 7 · pred 7 · 0\.\d{2}$/).textContent;
+  fireEvent.pointerLeave(grid, { pointerType: 'touch' });
+  fireEvent.mouseMove(tiles[0]);
+  fireEvent.pointerLeave(grid, { pointerType: 'mouse' });
+  expect(within(grid).getByText(readout)).toBeVisible();
+  fireEvent.pointerMove(tiles[0], { pointerType: 'mouse' });
+  expect(grid).toHaveAttribute('aria-valuetext', expect.stringMatching(/^label 1/));
+  fireEvent.pointerLeave(grid, { pointerType: 'mouse' });
+  expect(grid.querySelector('.st-readout')).toBeNull();
+  fireEvent.pointerDown(tiles[3], { pointerType: 'touch' });
+  expect(grid).toHaveAttribute('aria-valuetext', expect.stringMatching(/^label 0/));
+  fireEvent.keyDown(grid, { key: 'ArrowRight' });
+  expect(grid).toHaveAttribute('aria-valuenow', '5');
+  fireEvent.keyDown(grid, { key: 'ArrowUp' });
+  expect(grid).toHaveAttribute('aria-valuenow', '2');
+  fireEvent.keyDown(grid, { key: 'End' });
+  expect(grid).toHaveAttribute('aria-valuenow', '6');
+  expect(tiles[5]).toHaveClass('st-selected-tile');
+  expect(grid).toHaveAttribute('aria-valuetext', 'label 6 · pred 7 · 0.69');
+  fireEvent.blur(grid);
+  fireEvent.mouseOver(path);
+  expect(grid.querySelector('.st-readout')).toBeNull();
+  fireEvent.pointerMove(path, { pointerType: 'mouse' });
+  expect(within(grid).getByText(readout)).toBeVisible();
+  fireEvent.pointerLeave(grid, { pointerType: 'mouse' });
+  expect(grid.querySelector('.st-readout')).toBeNull();
 });
