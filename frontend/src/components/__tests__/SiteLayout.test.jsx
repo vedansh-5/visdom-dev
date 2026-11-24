@@ -22,16 +22,31 @@ it('links home from the header and groups public destinations in the footer', ()
   }
   expect(footer.getAllByRole('heading').map(heading => heading.textContent)).toEqual(['Product', 'Open source', 'Legal']);
   expect(within(footer.getByRole('heading', { name: 'Product' }).parentElement).getByRole('link', { name: 'Contact us' })).toBeVisible();
-  const wordmark = screen.getByRole('contentinfo').lastElementChild;
-  expect(wordmark).toHaveTextContent('visdom');
-  expect(wordmark).toHaveAttribute('viewBox');
-  expect(wordmark).toHaveAttribute('aria-hidden', 'true');
   expect(screen.getByRole('contentinfo')).toHaveTextContent('visdom.dev is run by FOSSASIA PTE. LTD., Singapore.');
   for (const name of ['FOSSASIA PTE. LTD.', `© ${new Date().getFullYear()} FOSSASIA`]) {
     const link = footer.getByRole('link', { name });
     expect(link).toHaveAttribute('href', 'https://fossasia.org');
     expect(link).toHaveAttribute('rel', 'noopener');
   }
+});
+
+it('shows a single named footer image with plots clipped to the same letters as its flat fallback', () => {
+  mount();
+  const footer = within(screen.getByRole('contentinfo'));
+  const wordmark = footer.getByRole('img', { name: 'visdom' });
+  expect(wordmark).toHaveAttribute('focusable', 'false');
+  expect(wordmark.querySelector('a, button, [tabindex], animate, animateTransform')).toBeNull();
+  const letters = wordmark.querySelector('text');
+  expect(letters).toHaveTextContent(/^visdom$/);
+  expect(wordmark.querySelector('clipPath use')).toHaveAttribute('href', `#${letters.id}`);
+  const artwork = wordmark.querySelector('[clip-path]');
+  expect(artwork).toHaveAttribute('clip-path', `url(#${wordmark.querySelector('clipPath').id})`);
+  expect(artwork.closest('[aria-hidden="true"]')).toBeInTheDocument();
+  expect(artwork).toHaveAttribute('display', 'none');
+  expect(artwork.previousElementSibling).toBe(letters);
+  expect(artwork.querySelectorAll('polyline')).toHaveLength(3);
+  expect(artwork.querySelectorAll('rect[fill-opacity]')).toHaveLength(64);
+  expect(artwork.querySelectorAll('path[stroke-linecap="round"]')).toHaveLength(6);
 });
 
 it.each([

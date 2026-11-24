@@ -4,6 +4,7 @@ import { Link, Outlet, useLocation } from 'react-router-dom';
 import { Menu, X } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { CONTROLLER } from '../content/legal';
+import FooterWordmark from './FooterWordmark';
 import '../css/site.css';
 
 const fossasia = 'https://fossasia.org';
@@ -103,9 +104,7 @@ function SiteFooter() {
         <div>visdom.dev is run by <a href={fossasia} rel="noopener">{CONTROLLER.name}</a>, Singapore.</div>
         <a href={fossasia} rel="noopener">© {new Date().getFullYear()} FOSSASIA</a>
       </div>
-      <svg className="site-wordmark" viewBox="0 0 700 205" aria-hidden="true" focusable="false">
-        <text x="350" y="180" textAnchor="middle" textLength="686" lengthAdjust="spacingAndGlyphs">visdom</text>
-      </svg>
+      <FooterWordmark />
     </footer>
   );
 }

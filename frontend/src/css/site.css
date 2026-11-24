@@ -84,6 +84,9 @@
   font-weight: 700;
   letter-spacing: -.065em;
 }
+@supports (clip-path: url("#letters")) and (color: color-mix(in srgb, black, white)) {
+  .site-wordmark-plots { display: inline; }
+}
 .site-layout :focus-visible { outline: 3px solid var(--pub-blue); outline-offset: 2px; }
 .site-footer :focus-visible { outline-color: var(--pub-mint); }
 .site-layout .auth-wrapper {
