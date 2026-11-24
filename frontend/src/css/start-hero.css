@@ -215,6 +215,10 @@
   .st-sheet-short { grid-template-rows: repeat(3, minmax(0, 1fr)); }
 }
 
+@media (min-width: 480px) and (max-width: 767px) and (max-height: 620px) {
+  .st-pitch h1 { font-size: clamp(34px, min(15.5cqi, 12.5dvh), 56px); }
+}
+
 .st-sheet-compact { grid-template-rows: minmax(min-content, 2fr) minmax(90px, 1fr); }
 .st-sheet-shallow { grid-template-rows: minmax(0, 1fr); }
 
