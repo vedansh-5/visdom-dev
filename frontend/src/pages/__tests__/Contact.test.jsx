@@ -27,7 +27,7 @@ describe('Contact', () => {
     expect(screen.getByRole('heading', { name: 'What to include' })).toBeVisible();
     expect(screen.getByText(/error message/)).toBeVisible();
     expect(screen.getByRole('heading', { name: 'When to expect a reply' })).toBeVisible();
-    expect(screen.getByText(/spare time/)).toBeVisible();
+    expect(screen.getByText(/allow a few days for a reply.*spare time.*take longer/i)).toBeVisible();
   });
 
   it('describes each invalid field and focuses the first one', async () => {

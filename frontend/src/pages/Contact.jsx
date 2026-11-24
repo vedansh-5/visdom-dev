@@ -128,7 +128,7 @@ export default function Contact() {
           <h2>What to include</h2>
           <p>For a billing question, tell us which plan or charge you mean. For a problem with a workspace, include its name, what you tried and any error message. Keep passwords and API keys private.</p>
           <h2>When to expect a reply</h2>
-          <p>Contributors review messages in their spare time. Reply times vary with their availability and the question.</p>
+          <p>Please allow a few days for a reply. Contributors review messages in their spare time, so it can take longer.</p>
         </aside>
       </div>
     </main>
