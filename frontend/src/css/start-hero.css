@@ -1,0 +1,225 @@
+/* Copyright 2017-present, The Visdom Authors */
+
+.st-sheet {
+  height: calc(100vh - 60px);
+  height: calc(100svh - 60px);
+  height: calc(100dvh - 60px);
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) minmax(min-content, 1.8fr) minmax(0, 1fr);
+  background: white;
+}
+
+.st-pitch {
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: flex-start;
+  gap: clamp(10px, 1.6vh, 22px);
+  padding: clamp(16px, 2.5vw, 60px);
+  background: var(--st-night);
+  color: white;
+}
+
+.st-mark {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: clamp(19px, 1.6vw, 30px);
+  font-weight: 700;
+  letter-spacing: -.035em;
+}
+
+.st-mark img {
+  width: 1.25em;
+  height: 1.25em;
+}
+
+.st-pitch h1 {
+  max-width: 17ch;
+  font-size: clamp(28px, 3.1vw, 64px);
+  line-height: 1;
+  letter-spacing: -.045em;
+  text-wrap: balance;
+}
+
+.st-pitch p {
+  max-width: 43ch;
+  color: #d1dbe7;
+  font-size: clamp(14px, 1.15vw, 19px);
+  line-height: 1.45;
+}
+
+.st-pitch-actions {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+.st-pitch-actions a {
+  display: inline-flex;
+  align-items: center;
+  min-width: 44px;
+  min-height: 44px;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.st-pane {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid #cbd5e1;
+  background: white;
+}
+
+.st-pane-strip {
+  display: flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 3px clamp(6px, .65vw, 16px);
+  background: var(--st-navy);
+  color: white;
+  font: 600 clamp(10px, .76vw, 15px)/1.25 ui-monospace, monospace;
+}
+
+.st-tone-1 .st-pane-strip { background: var(--st-night-row); }
+.st-tone-2 .st-pane-strip { background: #155f96; }
+.st-tone-3 .st-pane-strip { background: #475a79; }
+
+.st-pane-body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+
+.st-chart {
+  position: relative;
+  height: 100%;
+  background-color: #fbfdff;
+  background-image: linear-gradient(#e6edf4 1px, transparent 1px), linear-gradient(90deg, #e6edf4 1px, transparent 1px);
+  background-size: 16.6667% 25%;
+  touch-action: pan-y;
+}
+
+.st-chart[role="slider"] { cursor: crosshair; }
+.st-page .st-chart:focus-visible { outline-offset: -3px; }
+.st-chart svg { display: block; width: 100%; height: 100%; }
+
+.st-marker, .st-readout, .st-live {
+  position: absolute;
+  pointer-events: none;
+}
+
+.st-marker {
+  width: 10px;
+  height: 10px;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: var(--st-accent-dark);
+  border: 2px solid white;
+  box-shadow: 0 0 0 1px var(--st-accent-dark);
+}
+
+.st-readout, .st-live {
+  padding: 3px 6px;
+  border-radius: 3px;
+  font: 600 clamp(10px, .7vw, 13px)/1.3 ui-monospace, monospace;
+}
+
+.st-readout {
+  left: 6px;
+  bottom: 6px;
+  color: white;
+  background: var(--st-night-row);
+}
+
+.st-live {
+  top: 6px;
+  right: 6px;
+  color: #166135;
+  background: #e1f4e8;
+}
+
+.st-heat, .st-samples {
+  display: grid;
+  height: 100%;
+  padding: 4px;
+  gap: 2px;
+}
+
+.st-heat {
+  grid-template: repeat(8, 1fr) / repeat(8, 1fr);
+  background: #f0f6fb;
+}
+
+.st-heat i { background: #185894; }
+
+.st-samples {
+  grid-template: repeat(2, minmax(0, 1fr)) / repeat(3, minmax(0, 1fr));
+  background: #172331;
+}
+
+.st-samples svg {
+  width: 100%;
+  height: 100%;
+  padding: 6%;
+  background: #233246;
+  color: #f1f6ff;
+}
+
+.st-samples svg:nth-child(3n) { color: #acc9e3; }
+
+@media (hover: hover) and (prefers-reduced-motion: no-preference) {
+  .st-pane { transition: transform .15s, box-shadow .15s; }
+  .st-pane:hover {
+    z-index: 2;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px #16233133;
+  }
+}
+
+@media (max-height: 620px) {
+  .st-pitch {
+    padding: clamp(8px, 2vh, 16px) clamp(14px, 2vw, 32px);
+    gap: 6px;
+  }
+
+  .st-pitch h1 { font-size: clamp(28px, 6vh, 42px); }
+}
+
+@media (min-width: 480px) {
+  .st-sheet-short { grid-template-rows: repeat(3, minmax(0, 1fr)); }
+}
+
+.st-sheet-compact { grid-template-rows: minmax(min-content, 2fr) minmax(0, 1fr); }
+.st-sheet-shallow { grid-template-rows: minmax(0, 1fr); }
+
+.st-sheet-compact .st-pitch, .st-sheet-shallow .st-pitch {
+  display: grid;
+  align-content: center;
+  justify-content: stretch;
+  align-items: center;
+  grid-template-columns: 1fr auto;
+  gap: 5px 8px;
+}
+
+.st-sheet-compact .st-pitch { padding-block: 4px; }
+
+.st-sheet-compact .st-pitch h1, .st-sheet-shallow .st-pitch h1 {
+  grid-area: 1 / 1 / 2 / -1;
+  max-width: none;
+}
+
+.st-sheet-compact .st-pitch p, .st-sheet-shallow .st-pitch p { grid-area: 2 / 1 / 3 / -1; }
+.st-sheet-compact .st-mark, .st-sheet-shallow .st-mark { grid-area: 3 / 1; align-self: center; }
+.st-sheet-compact .st-pitch-actions, .st-sheet-shallow .st-pitch-actions { grid-area: 3 / 2; gap: 12px; }
+.st-sheet-compact .st-btn, .st-sheet-shallow .st-btn { padding-inline: 12px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .st-page *, .st-page *::before, .st-page *::after {
+    transition: none !important;
+    animation: none !important;
+  }
+}

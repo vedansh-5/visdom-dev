@@ -1,114 +1,14 @@
 /* Copyright 2017-present, The Visdom Authors */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
+import StartHero from '../components/start/StartHero';
+import Chart from '../components/start/Chart';
+import { BLUE, NAVY, CHARTS, LIVE_POINTS, LIVE_TARGET } from '../components/start/chartData';
+import useLiveRun from '../components/start/useLiveRun';
 import { CLIENT_INSTALL, plotSnippet } from '../utils/quickstart';
 
 const GITHUB_VISDOM = 'https://github.com/fossasia/visdom';
 const GITHUB_VISDOM_DEV = 'https://github.com/fossasia/visdom-dev';
-
-const BLUE = '#1a6fb0';
-const NAVY = '#3b5998';
-const ORANGE = '#f9a557';
-const GREEN = '#1e7e34';
-
-const LIVE_POINTS = 120;
-const LIVE_START = 50;
-const LIVE_TICK_MS = 700;
-
-const curve = (n, start, end, noise, seed) => {
-  let s = seed;
-  const rnd = () => {
-    s = (s * 9301 + 49297) % 233280;
-    return s / 233280;
-  };
-  return Array.from({ length: n }, (_, i) => end + (start - end) * Math.exp((-4 * i) / (n - 1)) + (rnd() - 0.5) * noise);
-};
-
-const flip = (values) => values.map((v) => 1.05 - v);
-
-const warmupCosine = Array.from({ length: 60 }, (_, i) => (i < 8 ? i / 8 : Math.cos(((i - 8) / 52) * (Math.PI / 2))));
-
-const CHARTS = {
-  acc: [{ y: flip(curve(60, 0.2, 0.9, 0.04, 3)), c: GREEN }],
-  acc2: [{ y: flip(curve(60, 0.1, 0.95, 0.03, 8)), c: GREEN }],
-  acc3: [{ y: flip(curve(60, 0.15, 0.9, 0.03, 17)), c: GREEN }],
-  lr: [{ y: warmupCosine, c: ORANGE }],
-  loss2: [{ y: curve(80, 2.3, 0.35, 0.12, 5), c: BLUE }, { y: curve(80, 2.3, 0.45, 0.06, 9), c: ORANGE }],
-  loss3: [{ y: curve(70, 2.1, 0.3, 0.1, 11), c: BLUE }],
-  loss4: [{ y: curve(40, 2.2, 0.4, 0.1, 13), c: BLUE }],
-  gpu: [{ y: curve(60, 4, 11.2, 0.4, 2).map((v) => 15 - v), c: NAVY }],
-  grad: [{ y: curve(60, 5, 1, 0.8, 4), c: NAVY }],
-};
-
-const LIVE_TARGET = curve(LIVE_POINTS, 2.3, 0.4, 0.1, 31);
-
-const W = 300;
-const H = 200;
-
-const points = (values, lo, hi, slots) =>
-  values
-    .map((v, i) => `${((i / Math.max(slots - 1, 1)) * W).toFixed(1)},${(H - 14 - ((v - lo) / (hi - lo || 1)) * (H - 28)).toFixed(1)}`)
-    .join(' ');
-
-const Chart = ({ lines, range, slots }) => {
-  const all = range || lines.flatMap((l) => l.y);
-  const lo = Math.min(...all);
-  const hi = Math.max(...all);
-  return (
-    <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" aria-hidden="true">
-      {lines.map((l, i) => (
-        <polyline
-          key={i}
-          points={points(l.y, lo, hi, slots || l.y.length)}
-          fill="none"
-          stroke={l.c}
-          strokeWidth="2"
-          vectorEffect="non-scaling-stroke"
-        />
-      ))}
-    </svg>
-  );
-};
-
-const Heat = ({ seed }) => (
-  <div className="st-heat" aria-hidden="true">
-    {Array.from({ length: 64 }, (_, i) => {
-      const r = i % 9 === 0 ? 0.9 : Math.abs(Math.sin(i * 7.3 + seed)) * 0.35;
-      return <i key={i} style={{ background: `rgba(33, 133, 208, ${r.toFixed(2)})` }} />;
-    })}
-  </div>
-);
-
-const Pane = ({ title, tone, height, children }) => (
-  <div className="st-pane" style={height ? { height } : undefined}>
-    <div className={`st-pane-strip st-tone-${tone}`}>{title}</div>
-    <div className="st-pane-body">{children}</div>
-  </div>
-);
-
-const Samples = ({ ids }) => (
-  <div className="st-imgs">
-    {ids.map((id, i) => (
-      <img key={`${id}-${i}`} src={`/start/samples/${id}.jpg`} alt="Sample image from a training batch" width="400" height="400" />
-    ))}
-  </div>
-);
-
-const prefersReducedMotion = () => Boolean(window.matchMedia?.('(prefers-reduced-motion: reduce)').matches);
-
-const useLiveRun = () => {
-  const [count, setCount] = useState(LIVE_START);
-  useEffect(() => {
-    if (prefersReducedMotion()) {
-      return undefined;
-    }
-    const timer = setInterval(() => {
-      setCount((n) => (n >= LIVE_POINTS ? LIVE_START : n + 1));
-    }, LIVE_TICK_MS);
-    return () => clearInterval(timer);
-  }, []);
-  return count;
-};
 
 const useReveal = (ref) => {
   useEffect(() => {
@@ -271,69 +171,15 @@ const FEATURES = [
 const Start = () => {
   const pageRef = useRef(null);
   useReveal(pageRef);
-  const count = useLiveRun();
+  const heroRef = useRef(null);
+  const count = useLiveRun(heroRef);
   const snippet = useMemo(() => plotSnippet(), []);
-  const live = LIVE_TARGET.slice(0, count);
-  const step = (count * 500).toLocaleString('en-US');
   const liveEpoch = Math.min(90, Math.round((count / LIVE_POINTS) * 90));
   const liveLoss = Math.max(0.3, LIVE_TARGET[count - 1] / 4.3 + 0.2).toFixed(3);
 
   return (
     <div className="st-page" ref={pageRef}>
-      <header className="st-sheet">
-        <div className="st-cols">
-          <div className="st-col">
-            <Pane title="val accuracy" tone="a" height={300}><Chart lines={CHARTS.acc} /></Pane>
-            <Pane title="samples, epoch 41" tone="b"><Samples ids={[1025, 237, 1074, 433]} /></Pane>
-            <Pane title="learning rate" tone="c" height={220}><Chart lines={CHARTS.lr} /></Pane>
-          </div>
-          <div className="st-col">
-            <Pane title="confusion matrix" tone="d" height={260}><Heat seed={0} /></Pane>
-            <Pane title="loss, resnet50-aug" tone="a" height={330}><Chart lines={CHARTS.loss2} /></Pane>
-            <Pane title="notes" tone="b">
-              <div className="st-textpane"><b>Run notes</b>Mixed precision on. Batch 256, cosine schedule, warmup 5 epochs. Validation every 500 steps.</div>
-            </Pane>
-          </div>
-          <div className="st-pair">
-            <div className="st-duo">
-              <Pane title="gpu memory, GB" tone="c" height={150}><Chart lines={CHARTS.gpu} /></Pane>
-              <Pane title="grad norm" tone="d" height={190}><Chart lines={CHARTS.grad} /></Pane>
-            </div>
-            <div className="st-pitch">
-              <Link to="/" className="st-mark">
-                <img src="/logo.svg" alt="" />
-                <span>visdom</span>
-              </Link>
-              <h1>Watch training live, together.</h1>
-              <p>Your plots, images and text in the browser while training runs. Hosted for your team, no server to set up.</p>
-              <Link to="/register" className="st-btn">Get started</Link>
-              <nav aria-label="Account">
-                <Link to="/login">Sign in</Link>
-                <a href={GITHUB_VISDOM}>GitHub</a>
-              </nav>
-            </div>
-            <div className="st-duo">
-              <Pane title="validation batch" tone="b"><Samples ids={[433, 659, 582, 1074]} /></Pane>
-              <Pane title="val accuracy, vit-small" tone="a" height={300}><Chart lines={CHARTS.acc3} /></Pane>
-            </div>
-          </div>
-          <div className="st-col">
-            <Pane title="loss, resnet50-base" tone="b" height={360}>
-              <span className="st-live"><b aria-hidden="true">●</b> live, step {step}</span>
-              <Chart lines={[{ y: live, c: BLUE }]} range={LIVE_TARGET} slots={LIVE_POINTS} />
-            </Pane>
-            <Pane title="augmented batch" tone="a"><Samples ids={[582, 659, 237, 1025]} /></Pane>
-            <Pane title="top-5 accuracy" tone="c" height={200}><Chart lines={CHARTS.acc2} /></Pane>
-          </div>
-          <div className="st-col">
-            <Pane title="workspace" tone="d">
-              <div className="st-textpane"><b>3 people watching</b>Ana, Raj and Sam have this environment open.</div>
-            </Pane>
-            <Pane title="loss, vit-small" tone="b" height={300}><Chart lines={CHARTS.loss3} /></Pane>
-            <Pane title="attention, head 3" tone="a" height={260}><Heat seed={1} /></Pane>
-          </div>
-        </div>
-      </header>
+      <StartHero boardRef={heroRef} count={count} />
 
       <main>
         <section className="st-steps" aria-labelledby="st-how">
