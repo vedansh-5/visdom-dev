@@ -12,14 +12,15 @@ const PANES = [
   ['Training loss', 'live'], ['Sample batch', 'digits'], ['Validation accuracy', 'acc'],
   ['Confusion matrix', 'heat'], ['Learning rate', 'lr'], ['Validation loss', 'loss2'],
   ['Gradient norm', 'grad'], ['Validation batch', 'digits'], ['GPU memory, GB', 'gpu'],
-  ['Top-5 accuracy', 'acc2'], ['Attention weights', 'heat'], ['Training loss · ViT', 'loss3'],
+  ['Top-5 accuracy', 'acc2'], ['Attention weights', 'attention'], ['Training loss · ViT', 'loss3'],
   ['Augmented batch', 'digits'], ['Validation accuracy · ViT', 'acc3'], ['Learning rate · ViT', 'lr'],
   ['Class predictions', 'heat'], ['Validation loss · ViT', 'loss4'], ['Training batch · ViT', 'digits'],
   ['Accuracy · ConvNeXt', 'acc2'], ['Gradient norm · ViT', 'grad'], ['Validation batch · ViT', 'digits'],
-  ['Class attention', 'heat'], ['Loss · ConvNeXt', 'loss2'], ['Learning rate · ConvNeXt', 'lr'],
+  ['Class attention', 'attention'], ['Loss · ConvNeXt', 'loss2'], ['Learning rate · ConvNeXt', 'lr'],
   ['Validation samples', 'digits'], ['Accuracy · ResNet', 'acc'],
 ];
 
+const tileColours = { digits: 'var(--pub-coral)', heat: 'var(--pub-teal)', attention: 'var(--pub-orange)' };
 const columnBreakpoints = [[2560, 10], [1920, 8], [1680, 7], [1280, 6], [1024, 5], [768, 4], [480, 3], [0, 2]];
 const screenColumns = () => columnBreakpoints.find(([minWidth]) => window.innerWidth >= minWidth)[1];
 const screenMode = () => {
@@ -62,22 +63,26 @@ export default function StartHero() {
           <Link to="/login">Sign in</Link>
         </div>
       </div>
-      {PANES.slice(0, columns * rowCount - pitchRows * span).map(([title, type], i) => (
-        <div key={title} className={`st-pane st-tone-${i % 4}`}>
-          <div className="st-pane-strip">
-            {title}
-            {type === 'live' && <button type="button" className="st-live-toggle" aria-label={paused ? 'Resume training loss' : 'Pause training loss'}
-              onClick={() => setPaused(!paused)}>{paused ? 'Resume' : 'Pause'}</button>}
+      {PANES.slice(0, columns * rowCount - pitchRows * span).map(([title, type], i) => {
+        const lines = type === 'live' ? live : CHARTS[type];
+        const colour = tileColours[type] || lines[0].c;
+        return (
+          <div key={title} className="st-pane" style={{ '--st-plot-colour': colour }}>
+            <div className="st-pane-strip">
+              {title}
+              {type === 'live' && <button type="button" className="st-live-toggle" aria-label={paused ? 'Resume training loss' : 'Pause training loss'}
+                onClick={() => setPaused(!paused)}>{paused ? 'Resume' : 'Pause'}</button>}
+            </div>
+            <div className="st-pane-body">
+              {tileColours[type] ? <TilePane type={type} title={title} seed={i} /> : (
+                <Chart label={title} lines={lines}
+                  slots={type === 'live' ? LIVE_POINTS : undefined} range={type === 'live' ? LIVE_TARGET : undefined} />
+              )}
+              {type === 'live' && <span className="st-live">{paused ? 'Paused' : 'Live'} · step {(count * 500).toLocaleString('en-US')}</span>}
+            </div>
           </div>
-          <div className="st-pane-body">
-            {type === 'digits' || type === 'heat' ? <TilePane type={type} title={title} seed={i} /> : (
-              <Chart label={title} lines={type === 'live' ? live : CHARTS[type]}
-                slots={type === 'live' ? LIVE_POINTS : undefined} range={type === 'live' ? LIVE_TARGET : undefined} />
-            )}
-            {type === 'live' && <span className="st-live">{paused ? 'Paused' : 'Live'} · step {(count * 500).toLocaleString('en-US')}</span>}
-          </div>
-        </div>
-      ))}
+        );
+      })}
     </section>
   );
 }

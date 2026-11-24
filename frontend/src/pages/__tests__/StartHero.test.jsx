@@ -130,7 +130,7 @@ it('reads the colour of the hovered heat cell and moves through rows and columns
   const grid = within(board()).getByRole('slider', { name: 'Confusion matrix' });
   const cells = grid.querySelectorAll('i');
   fireEvent.pointerMove(cells[21], { pointerType: 'mouse' });
-  const alpha = Number(cells[21].style.backgroundColor.match(/[\d.]+(?=\)$)/)[0]);
+  const alpha = Number(cells[21].style.getPropertyValue('--st-intensity'));
   const readout = `true 2 · predicted 5 · ${alpha.toFixed(2)}`;
   expect(within(grid).getByText(readout)).toBeVisible();
   expect(cells[21]).toHaveClass('st-selected-tile');
@@ -182,4 +182,25 @@ it('inspects the drawn digit on tap, keeps the touch selection and clears it on 
   expect(within(grid).getByText(readout)).toBeVisible();
   fireEvent.pointerLeave(grid, { pointerType: 'mouse' });
   expect(grid.querySelector('.st-readout')).toBeNull();
+});
+
+it('groups plot strips and traces by measurement and gives attention a warm heat scale', () => {
+  vi.stubGlobal('innerWidth', 2560);
+  renderStart();
+  const pane = title => within(board()).getByRole('slider', { name: title }).closest('.st-pane');
+  const colour = title => pane(title).style.getPropertyValue('--st-plot-colour');
+  for (const [title, family] of [
+    ['Training loss', 'blue'], ['Validation loss', 'blue'], ['Validation accuracy', 'green'],
+    ['Learning rate', 'orange'], ['GPU memory, GB', 'muted'], ['Gradient norm', 'muted'],
+  ]) {
+    expect(colour(title)).toBe(`var(--pub-${family})`);
+    expect(pane(title).querySelector('polyline')).toHaveAttribute('stroke', colour(title));
+    expect(pane(title).querySelector('path.st-chart-grid')).toBeInTheDocument();
+  }
+  expect(pane('Validation loss').querySelectorAll('polyline')[1]).toHaveAttribute('stroke-dasharray');
+  expect(colour('Sample batch')).toBe('var(--pub-coral)');
+  expect(colour('Class predictions')).toBe('var(--pub-teal)');
+  expect(colour('Confusion matrix')).toBe(colour('Class predictions'));
+  expect(colour('Attention weights')).toBe('var(--pub-orange)');
+  expect(colour('Class attention')).toBe(colour('Attention weights'));
 });

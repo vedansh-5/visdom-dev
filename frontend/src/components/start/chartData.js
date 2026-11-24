@@ -1,8 +1,8 @@
 /* Copyright 2017-present, The Visdom Authors */
-export const BLUE = '#1a6fb0';
-export const NAVY = '#3b5998';
-const ORANGE = '#f9a557';
-const GREEN = '#1e7e34';
+export const BLUE = 'var(--pub-blue)';
+const MUTED = 'var(--pub-muted)';
+const ORANGE = 'var(--pub-orange)';
+const GREEN = 'var(--pub-green)';
 
 export const LIVE_POINTS = 120;
 export const LIVE_START = 50;
@@ -24,11 +24,11 @@ export const CHARTS = {
   acc2: [{ y: curve(60, 0.1, 0.95, 0.03, 8), c: GREEN }],
   acc3: [{ y: curve(60, 0.15, 0.9, 0.03, 17), c: GREEN }],
   lr: [{ y: warmupCosine, c: ORANGE }],
-  loss2: [{ y: curve(80, 2.3, 0.35, 0.12, 5), c: BLUE }, { y: curve(80, 2.3, 0.45, 0.06, 9), c: ORANGE }],
+  loss2: [{ y: curve(80, 2.3, 0.35, 0.12, 5), c: BLUE }, { y: curve(80, 2.3, 0.45, 0.06, 9), c: 'var(--pub-blue-deep)' }],
   loss3: [{ y: curve(70, 2.1, 0.3, 0.1, 11), c: BLUE }],
   loss4: [{ y: curve(40, 2.2, 0.4, 0.1, 13), c: BLUE }],
-  gpu: [{ y: curve(60, 4, 11.2, 0.4, 2).map((v) => 15 - v), c: NAVY }],
-  grad: [{ y: curve(60, 5, 1, 0.8, 4), c: NAVY }],
+  gpu: [{ y: curve(60, 4, 11.2, 0.4, 2).map((v) => 15 - v), c: MUTED }],
+  grad: [{ y: curve(60, 5, 1, 0.8, 4), c: MUTED }],
 };
 
 export const LIVE_TARGET = curve(LIVE_POINTS, 2.3, 0.4, 0.1, 31);
