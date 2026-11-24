@@ -352,3 +352,17 @@ class PlatformSwitch(Base):
     is_on = Column(Boolean, nullable=False, default=False, server_default="false")
     changed_at = Column(DateTime(timezone=True), nullable=True)
     changed_by = Column(String, nullable=True)
+
+
+class ContactMessage(Base):
+    __tablename__ = "contact_messages"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name = Column(String(100), nullable=False)
+    email = Column(String(254), nullable=False)
+    topic = Column(String(20), nullable=False)
+    message = Column(String(5000), nullable=False)
+    handled = Column(Boolean, nullable=False, default=False, server_default="false")
+    created_at = Column(DateTime(timezone=True), nullable=False, default=utcnow, index=True)
+    sender_key = Column(String(64), nullable=True, unique=True)
+    proxy_sender_key = Column(String(64), nullable=True, unique=True)

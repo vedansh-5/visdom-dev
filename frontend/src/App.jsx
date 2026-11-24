@@ -13,6 +13,7 @@ import JoinWorkspace from './pages/JoinWorkspace';
 import Start from './pages/Start';
 import NotFound from './pages/NotFound';
 
+import Contact from './pages/Contact';
 import SiteLayout from './components/SiteLayout';
 
 function PageNavigation() {
@@ -35,6 +36,7 @@ function App() {
     <BrowserRouter>
       <Routes>
         <Route element={<SiteLayout />}>
+          <Route path="/contact" element={<Contact />} />
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
           <Route path="/forgot-password" element={<ForgotPassword />} />

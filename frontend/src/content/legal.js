@@ -3,16 +3,16 @@
 export const CONTROLLER = {
   name: 'FOSSASIA PTE. LTD.',
   address: '12 Eu Tong Sen Street #08-169, Singapore 059819',
-  email: 'office@fossasia.org',
 };
 
-export const UPDATED = '23 October 2026';
+export const UPDATED = { Privacy: '24 November 2026', Cookies: '23 October 2026' };
 
 export const PRIVACY = [
   {
     heading: 'Who runs this service',
+    contact: true,
     body: [
-      `visdom.dev is run by ${CONTROLLER.name}, ${CONTROLLER.address}. It decides what is collected here and why, and it is who to contact about any of it, at ${CONTROLLER.email}.`,
+      `visdom.dev is run by ${CONTROLLER.name}, ${CONTROLLER.address}. It decides what is collected here and why.`,
       'visdom.dev is a hosted version of visdom, an open source tool for watching machine learning experiments as they run.',
     ],
   },
@@ -46,6 +46,7 @@ export const PRIVACY = [
     heading: 'How long we keep it',
     body: [
       'Your account details are kept while the account exists.',
+      'We keep your contact form name, email address, topic and message to answer your enquiry. An hourly check removes messages once they are 365 days old. It also clears the codes we use to limit repeat submissions once they are an hour old.',
       'Plot data is kept for at least as long as your plan says, counted from when an environment was last written to. The free plan keeps 7 days and the pro plan keeps 90. After that, older environments may be removed automatically.',
       'Backups are kept for 90 days and then deleted, so data can remain in a backup for up to 90 days after you remove it from the service.',
       'Usage records are kept while the workspace they describe exists, and are deleted with it. Deleting your account deletes your workspaces, so their usage records go too.',

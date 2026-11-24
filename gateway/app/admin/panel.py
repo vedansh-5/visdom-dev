@@ -39,6 +39,7 @@ from app.models import (
     AdminUser,
     APIKey,
     APIKeyWorkspace,
+    ContactMessage,
     Membership,
     Plan,
     SharedLink,
@@ -848,6 +849,19 @@ class APIKeyAdmin(ChangeableView, model=APIKey):
     column_details_exclude_list = [APIKey.hashed_key]
     column_sortable_list = [APIKey.created_at, APIKey.last_used_at]
     form_columns = [APIKey.is_active]
+
+
+class ContactMessageAdmin(ChangeableView, model=ContactMessage):
+    name = "Contact message"
+    name_plural = "Contact messages"
+    icon = "fa-solid fa-inbox"
+    category = "Support"
+    column_list = [ContactMessage.created_at, ContactMessage.topic, ContactMessage.name,
+                   ContactMessage.email, ContactMessage.handled]
+    column_default_sort = (ContactMessage.created_at, True)
+    column_formatters = {ContactMessage.created_at: _to_the_minute("created_at")}
+    column_details_exclude_list = [ContactMessage.sender_key, ContactMessage.proxy_sender_key]
+    form_columns = [ContactMessage.handled]
 
 
 class WorkspaceInviteAdmin(RoleScopedView, model=WorkspaceInvite):
@@ -2301,6 +2315,7 @@ VIEWS = (
     WorkspaceAdmin,
     MembershipAdmin,
     APIKeyAdmin,
+    ContactMessageAdmin,
     WorkspaceInviteAdmin,
     SharedLinkAdmin,
     AdminUserAdmin,
