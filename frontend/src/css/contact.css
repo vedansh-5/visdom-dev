@@ -1,0 +1,92 @@
+/* Copyright 2017-present, The Visdom Authors */
+.contact-page {
+  flex: 1;
+  background: #f4f6fa;
+  color: #172b46;
+  padding: clamp(32px, 7vw, 104px) clamp(18px, 5vw, 80px);
+}
+.contact-layout {
+  max-width: 1120px;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: minmax(0, 4fr) minmax(0, 6fr);
+  align-items: start;
+  gap: clamp(32px, 6vw, 90px);
+}
+.contact-intro h1 {
+  margin: 0;
+  font-size: clamp(38px, 5.6vw, 74px);
+  letter-spacing: -.055em;
+  line-height: 1.02;
+}
+.contact-intro p, .contact-panel p {
+  line-height: 1.6;
+  margin: 14px 0;
+}
+.contact-intro p { max-width: 34ch; font-size: clamp(16px, 1.5vw, 21px); }
+.contact-page a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  color: #36558d;
+  font-weight: 600;
+  text-underline-offset: .2em;
+}
+.contact-panel {
+  padding: clamp(20px, 3vw, 38px);
+  background: #fff;
+  border: 1px solid #bdcadb;
+  border-top: 4px solid #3b5998;
+}
+.contact-panel fieldset { min-width: 0; margin: 0; padding: 0; border: 0; }
+.contact-panel legend, .contact-panel h2 {
+  margin: 0 0 18px;
+  padding: 0;
+  font-size: 23px;
+  letter-spacing: -.03em;
+  font-weight: 700;
+}
+.contact-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.contact-field {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  margin-bottom: 16px;
+}
+.contact-field label { font-size: 14px; font-weight: 650; }
+.contact-field :is(input, select, textarea) {
+  width: 100%;
+  min-height: 44px;
+  padding: 9px 11px;
+  border: 1px solid #8093ab;
+  border-radius: 3px;
+  background: #fff;
+  color: inherit;
+  font: inherit;
+  font-size: 16px;
+}
+.contact-field textarea { resize: vertical; }
+.contact-panel button {
+  min-height: 44px;
+  border: 0;
+  border-radius: 3px;
+  padding: 10px 20px;
+  background: #3b5998;
+  color: #fff;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.contact-panel button:hover { background: #304978; }
+.contact-panel button:disabled { cursor: wait; }
+.contact-page :focus-visible { outline: 3px solid #1a6fb0; outline-offset: 3px; }
+.contact-field [aria-invalid="true"] { border-color: #a43135; }
+.contact-error { color: #972f33; font-size: 14px; }
+.contact-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+@media (max-width: 767px) {
+  .contact-layout { grid-template-columns: minmax(0, 1fr); gap: 18px; max-width: 580px; }
+  .contact-intro p { margin-bottom: 0; }
+}
+@media (max-width: 479px) {
+  .contact-pair { grid-template-columns: minmax(0, 1fr); gap: 0; }
+}
