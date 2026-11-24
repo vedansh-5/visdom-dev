@@ -124,6 +124,12 @@ export default function Contact() {
             </fieldset>
           </form>
         )}
+        <aside className="contact-guide" aria-label="Writing to the team">
+          <h2>What to include</h2>
+          <p>For a billing question, tell us which plan or charge you mean. For a problem with a workspace, include its name, what you tried and any error message. Keep passwords and API keys private.</p>
+          <h2>When to expect a reply</h2>
+          <p>Contributors review messages in their spare time. Reply times vary with their availability and the question.</p>
+        </aside>
       </div>
     </main>
   );

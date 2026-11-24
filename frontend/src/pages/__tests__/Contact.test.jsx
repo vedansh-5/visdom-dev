@@ -22,6 +22,14 @@ async function fill(user) {
 describe('Contact', () => {
   beforeEach(() => { api.post.mockReset(); });
 
+  it('helps visitors describe a problem and explains when messages are reviewed', () => {
+    show();
+    expect(screen.getByRole('heading', { name: 'What to include' })).toBeVisible();
+    expect(screen.getByText(/error message/)).toBeVisible();
+    expect(screen.getByRole('heading', { name: 'When to expect a reply' })).toBeVisible();
+    expect(screen.getByText(/spare time/)).toBeVisible();
+  });
+
   it('describes each invalid field and focuses the first one', async () => {
     const user = show();
     await user.click(screen.getByRole('button', { name: 'Send message' }));
