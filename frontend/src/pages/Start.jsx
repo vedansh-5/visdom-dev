@@ -135,7 +135,7 @@ const Start = () => {
             </div>
             <figure data-reveal className="st-preview-plot st-first-plot">
               <figcaption className="st-plot-title">Training loss <span>experiment-1</span></figcaption>
-              <Chart label="Training loss from the example script" lines={FIRST_PLOT} />
+              <Chart label="Training loss from the example script" lines={FIRST_PLOT} drawOnEntry />
               <div className="st-plot-steps"><span>Step 0</span><span>Step 3</span></div>
             </figure>
           </div>

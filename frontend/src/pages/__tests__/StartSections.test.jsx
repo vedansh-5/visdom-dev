@@ -183,6 +183,10 @@ it('reveals the closing chart once, after it enters a visible tab', () => {
   visit();
   const figure = screen.getByText('Step 3').closest('figure');
   expect(targets.has(figure)).toBe(true);
+  const clip = figure.querySelector('clipPath');
+  expect(clip?.querySelector('rect')).toBeInTheDocument();
+  expect(figure.querySelector('polyline')).toHaveAttribute('clip-path', `url(#${clip.id})`);
+  expect(figure.querySelector('.st-chart-grid')).not.toHaveAttribute('clip-path');
   const hidden = vi.spyOn(document, 'hidden', 'get').mockReturnValue(true);
   try {
     fireEvent(document, new Event('visibilitychange'));

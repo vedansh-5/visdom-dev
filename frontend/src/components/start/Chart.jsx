@@ -1,8 +1,9 @@
 /* Copyright 2017-present, The Visdom Authors */
 
-import { useState } from 'react';
+import { useId, useState } from 'react';
 
-export default function Chart({ lines, label, range, slots = lines[0].y.length }) {
+export default function Chart({ lines, label, range, slots = lines[0].y.length, drawOnEntry = false }) {
+  const clipId = useId();
   const [selected, setSelected] = useState(null);
   const values = range || lines.flatMap(line => line.y);
   const lo = Math.min(...values);
@@ -34,11 +35,15 @@ export default function Chart({ lines, label, range, slots = lines[0].y.length }
       onFocus: () => setSelected(n => n ?? last), onBlur: () => setSelected(null), onKeyDown: keyDown,
     } : {})}>
       <svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+        {drawOnEntry && <defs>
+          <clipPath id={clipId}><rect width="100" height="100" /></clipPath>
+        </defs>}
         <path className="st-chart-grid" d="M0 25h100 M0 50h100 M0 75h100 M20 0v100 M40 0v100 M60 0v100 M80 0v100"
           fill="none" stroke="var(--pub-rule)" vectorEffect="non-scaling-stroke" />
         {lines.map((line, i) => (
           <polyline key={i} points={line.y.map((v, j) => `${x(j).toFixed(2)},${y(v).toFixed(2)}`).join(' ')}
-            fill="none" stroke={line.c} strokeWidth="2" strokeDasharray={i ? '6 3' : undefined} pathLength={i ? undefined : 1} vectorEffect="non-scaling-stroke" />
+            fill="none" stroke={line.c} strokeWidth="2" strokeDasharray={i ? '6 3' : undefined}
+            clipPath={drawOnEntry ? `url(#${clipId})` : undefined} vectorEffect="non-scaling-stroke" />
         ))}
       </svg>
       {selected !== null && <>
