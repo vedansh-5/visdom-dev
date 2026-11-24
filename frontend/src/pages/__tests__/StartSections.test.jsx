@@ -96,3 +96,19 @@ it('sorts numeric trials in both directions and copies the displayed Python', as
   expect(copyToClipboard).toHaveBeenCalledWith(client.getByText(/vis.images\(batch/).textContent);
   expect(await client.findByText('Copied')).toBeVisible();
 });
+
+it('plots the four loss values from the example script beside the sign-up link', () => {
+  visit();
+  const cta = panel('Your first plot in five minutes');
+  const chart = cta.getByRole('slider', { name: 'Training loss from the example script' });
+  const script = screen.getByLabelText('Connect your script to Visdom').textContent;
+  const values = JSON.parse(script.match(/enumerate\((\[[^\]]+\])\)/)[1]);
+  expect(values).toHaveLength(4);
+  expect(chart).toHaveAttribute('aria-valuemax', String(values.length));
+  fireEvent.keyDown(chart, { key: 'Home' });
+  values.forEach((loss, i) => {
+    expect(chart).toHaveAttribute('aria-valuetext', `Point ${i + 1}, ${loss.toFixed(3)}`);
+    fireEvent.keyDown(chart, { key: 'ArrowRight' });
+  });
+  expect(cta.getByRole('link', { name: 'Create an account' })).toHaveAttribute('href', '/register');
+});

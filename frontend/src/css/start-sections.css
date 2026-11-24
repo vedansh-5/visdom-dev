@@ -215,6 +215,24 @@
 .st-open-links .st-btn { font-size: 14px; }
 .st-cta { padding: clamp(44px, 6vw, 100px) 0; background: var(--st-navy-dark); color: white; }
 
+.st-cta .st-inner {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: center;
+  gap: clamp(24px, 5vw, 80px);
+}
+
+.st-first-plot figcaption, .st-plot-steps {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.st-first-plot figcaption { border-bottom: 1px solid #d2dae4; }
+.st-first-plot figcaption span, .st-plot-steps { color: #46586a; font: 13px/1.5 ui-monospace, monospace; }
+.st-plot-steps { padding: 6px 3%; border-top: 1px solid #d2dae4; }
+
 @media (max-width: 1100px) {
   .st-page .st-step-list, .st-cells { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .st-field:nth-child(2) { border-inline-end: 0; }
@@ -226,7 +244,7 @@
 }
 
 @media (max-width: 700px) {
-  .st-cells, .st-open { grid-template-columns: minmax(0, 1fr); }
+  .st-cells, .st-open, .st-cta .st-inner { grid-template-columns: minmax(0, 1fr); }
   .st-open-txt { grid-row: 1; }
 }
 
