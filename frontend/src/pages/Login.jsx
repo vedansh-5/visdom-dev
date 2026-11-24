@@ -84,13 +84,13 @@ const Login = () => {
     <div className="auth-wrapper">
       <div className="visdom-panel auth-panel">
         <div style={{ textAlign: 'center', marginBottom: '24px' }}>
-          <h2 className="visdom-logo" style={{ fontSize: '24px', margin: '0 0 4px 0', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+          <div className="visdom-logo" style={{ fontSize: '24px', margin: '0 0 4px 0', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
             <Link to="/" style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'inherit', textDecoration: 'none' }}>
               <img src="/logo.svg" alt="Visdom Logo" style={{ height: '32px', width: '32px', borderRadius: '4px' }} />
               <span>visdom</span>
             </Link>
-          </h2>
-          <div style={{ color: 'var(--text-muted)', fontSize: '13px' }}>Sign in to manage your workspaces</div>
+          </div>
+          <h1 className="auth-title">Sign in to manage your workspaces</h1>
         </div>
 
         {error && (
@@ -109,14 +109,16 @@ const Login = () => {
 
         <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
           <div>
-            <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: 'var(--text-secondary)', marginBottom: '6px' }}>
+            <label htmlFor="login-email" style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: 'var(--text-secondary)', marginBottom: '6px' }}>
               Email Address
             </label>
             <input
+              id="login-email"
               type="email"
+              autoComplete="email"
               required
               className="visdom-input"
-              placeholder="you@example.com"
+              placeholder="Your email address"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
             />
@@ -124,7 +126,7 @@ const Login = () => {
 
           <div>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '6px' }}>
-              <label style={{ fontSize: '12px', fontWeight: '600', color: 'var(--text-secondary)' }}>
+              <label htmlFor="login-password" style={{ fontSize: '12px', fontWeight: '600', color: 'var(--text-secondary)' }}>
                 Password
               </label>
               <Link to="/forgot-password" state={{ email }} style={{ fontSize: '12px', color: '#3b5998', textDecoration: 'none' }}>
@@ -132,6 +134,7 @@ const Login = () => {
               </Link>
             </div>
             <PasswordInput
+              id="login-password"
               required
               autoComplete="current-password"
               placeholder="••••••••"
