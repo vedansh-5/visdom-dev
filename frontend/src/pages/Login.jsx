@@ -95,7 +95,7 @@ const Login = () => {
 
         {error && (
           <div style={{
-            background: 'rgba(217, 83, 79, 0.1)',
+            background: 'var(--pub-blush)',
             border: '1px solid var(--danger-bg)',
             borderRadius: '2px',
             padding: '10px',
@@ -109,7 +109,7 @@ const Login = () => {
 
         <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
           <div>
-            <label htmlFor="login-email" style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: 'var(--text-secondary)', marginBottom: '6px' }}>
+            <label htmlFor="login-email" style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: 'var(--text-secondary)', marginBottom: '6px' }}>
               Email Address
             </label>
             <input
@@ -126,10 +126,10 @@ const Login = () => {
 
           <div>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '6px' }}>
-              <label htmlFor="login-password" style={{ fontSize: '12px', fontWeight: '600', color: 'var(--text-secondary)' }}>
+              <label htmlFor="login-password" style={{ fontSize: '13px', fontWeight: '600', color: 'var(--text-secondary)' }}>
                 Password
               </label>
-              <Link to="/forgot-password" state={{ email }} style={{ fontSize: '12px', color: '#3b5998', textDecoration: 'none' }}>
+              <Link to="/forgot-password" state={{ email }} style={{ fontSize: '13px', color: 'var(--pub-blue)', textDecoration: 'none' }}>
                 Forgot password?
               </Link>
             </div>
@@ -146,9 +146,9 @@ const Login = () => {
           <button type="submit" disabled={submitting} className="visdom-btn" style={{
             width: '100%',
             height: '32px',
-            backgroundColor: '#3b5998',
-            color: '#ffffff',
-            borderColor: '#2f477a',
+            backgroundColor: 'var(--pub-blue)',
+            color: 'var(--pub-white)',
+            borderColor: 'var(--pub-blue-deep)',
             marginTop: '6px'
           }}>
             {submitting ? 'Signing in...' : 'Sign In'}
@@ -157,12 +157,12 @@ const Login = () => {
 
         <div style={{ textAlign: 'center', marginTop: '20px', fontSize: '13px', color: 'var(--text-muted)' }}>
           Don't have an account?{' '}
-          <Link to={`/register${location.search}`} state={{ from: location.state?.from }} style={{ color: '#3b5998', textDecoration: 'none', fontWeight: '600' }}>
+          <Link to={`/register${location.search}`} state={{ from: location.state?.from }} style={{ color: 'var(--pub-blue)', textDecoration: 'none', fontWeight: '600' }}>
             Sign up
           </Link>
         </div>
 
-        <div style={{ textAlign: 'center', marginTop: '16px', fontSize: '12px', color: 'var(--text-muted)' }}>
+        <div style={{ textAlign: 'center', marginTop: '16px', fontSize: '13px', color: 'var(--text-muted)' }}>
           <Link to={`/privacy${location.search}`} state={{ from: location.state?.from }} style={{ color: 'var(--text-muted)' }}>Privacy</Link>
           {' · '}
           <Link to={`/cookies${location.search}`} state={{ from: location.state?.from }} style={{ color: 'var(--text-muted)' }}>Cookies</Link>
