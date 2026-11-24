@@ -43,7 +43,7 @@ describe('Pricing', () => {
     api.get.mockReturnValue(new Promise(() => {}));
     visit();
     expect(screen.getByRole('status')).toHaveTextContent(/loading plans/i);
-    expect(api.get).toHaveBeenCalledWith('/billing/plans');
+    expect(api.get.mock.calls[0][0]).toBe('/billing/plans');
   });
 
   it('shows a failure and can retry the request', async () => {
@@ -67,6 +67,14 @@ describe('Pricing', () => {
     expect(group.getByRole('link')).toHaveAttribute('href', '/register?plan=group');
     expect(within(screen.getByRole('article', { name: 'Lab' })).getByRole('link', { name: 'Contact us' }))
       .toHaveAttribute('href', '/contact?topic=Billing');
+  });
+
+  it('shows the Free price once and keeps its registration action clear', async () => {
+    api.get.mockResolvedValue({ data: [{ ...plans[0], id: 'free', name: 'Free' }] });
+    visit();
+    const card = await screen.findByRole('article', { name: 'Free' });
+    expect(card.textContent.match(/free/gi)).toHaveLength(1);
+    expect(within(card).getByRole('link', { name: 'Get started' })).toHaveAttribute('href', '/register?plan=free');
   });
 
   it('compares all limits from the API, including unlimited and single-day retention', async () => {

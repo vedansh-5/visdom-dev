@@ -1,10 +1,10 @@
 /* Copyright 2017-present, The Visdom Authors */
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { api, useAuth } from '../context/AuthContext';
+import { useAuth } from '../context/AuthContext';
 import usePageTitle from '../hooks/usePageTitle';
 import { planAction } from '../utils/billing';
-import { cachedGet } from '../utils/requestCache';
+import { getPublicPlans } from '../utils/planCatalog';
 import '../css/pricing.css';
 
 const storage = (mb) => mb >= 1024 && mb % 1024 === 0
@@ -69,24 +69,26 @@ function ComparePlans({ plans }) {
 function PlanCard({ plan, user, sessionLoading }) {
   const custom = plan.price === null;
   const action = custom && planAction(plan, {});
-  let label = custom ? action.label : `Choose ${plan.name}`;
+  const free = plan.price === 0;
+  const priceLabel = custom ? action.label : free && plan.name.trim().toLowerCase() !== 'free' ? 'Free' : null;
+  let label = custom ? action.label : free ? 'Get started' : `Choose ${plan.name}`;
   let path = custom ? '/contact?topic=Billing' : `/register?plan=${encodeURIComponent(plan.id)}`;
   if (user) {
     label = 'Open billing';
     path = '/?tab=billing';
   }
   return (
-    <article className="pricing-card" aria-labelledby={`offer-${plan.id}`}>
+    <article className="pricing-card" data-plan={plan.id} aria-labelledby={`offer-${plan.id}`}>
       <h2 id={`offer-${plan.id}`}>{plan.name}</h2>
       <p className="pricing-price">
-        {custom ? action.label : plan.price === 0 ? 'Free' : <><span>${plan.price}</span> <small>/ month</small></>}
+        {priceLabel ?? <><span>${plan.price}</span> <small>/ month</small></>}
       </p>
       <ul>
         {plan.features.map((feature) => <li key={feature}>{feature}</li>)}
       </ul>
       {sessionLoading
         ? <span className="pricing-session">Checking session…</span>
-        : <Link className="pricing-action" to={path}>{label}</Link>}
+        : <Link className="pricing-action" to={path} state={user || custom ? undefined : { from: free ? '/' : '/?tab=billing' }}>{label}</Link>}
     </article>
   );
 }
@@ -130,7 +132,7 @@ export default function Pricing() {
 
   useEffect(() => {
     let active = true;
-    cachedGet('/billing/plans', () => api.get('/billing/plans').then((res) => res.data))
+    getPublicPlans()
       .then((data) => { if (active) setPlans(data); })
       .catch(() => { if (active) setFailed(true); });
     return () => { active = false; };

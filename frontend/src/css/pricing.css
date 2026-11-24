@@ -39,6 +39,12 @@
   border-top: .3rem solid #3b5998;
 }
 
+.pricing-card[data-plan="pro"] {
+  background: #eaf2fb;
+  border-color: #3b5998;
+  box-shadow: inset 0 0 0 1px #3b5998;
+}
+
 .pricing-card h2 { font-size: 1.3rem; color: #384f70; }
 .pricing-card .pricing-price {
   margin-top: 1rem;
