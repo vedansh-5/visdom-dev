@@ -95,8 +95,18 @@
 .contact-panel button:hover { background: var(--pub-blue-deep); }
 .contact-panel button:disabled { cursor: wait; }
 .contact-page :focus-visible { outline: 3px solid var(--pub-blue); outline-offset: 3px; }
-.contact-field [aria-invalid="true"] { border-color: var(--pub-coral); }
-.contact-error { color: var(--pub-coral); font-size: 14px; }
+.contact-field [aria-invalid="true"] {
+  border-color: var(--pub-red);
+  background: var(--pub-red-tint);
+}
+.contact-error {
+  width: fit-content;
+  border-inline-start: 2px solid var(--pub-red);
+  padding-inline: 8px;
+  background: var(--pub-red-tint);
+  color: var(--pub-red);
+  font-size: 14px;
+}
 .contact-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
 @media (max-width: 767px) {
   .contact-layout { grid-template-columns: minmax(0, 1fr); grid-template-areas: "intro" "form" "guide"; grid-template-rows: auto; gap: 20px; max-width: 580px; }
