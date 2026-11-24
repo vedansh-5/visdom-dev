@@ -70,6 +70,27 @@
   font: 600 clamp(10px, .76vw, 15px)/1.25 ui-monospace, monospace;
 }
 
+.st-pane-strip:has(.st-live-toggle) {
+  justify-content: space-between;
+  gap: 4px;
+  padding-block: 0;
+}
+
+.st-live-toggle {
+  flex: none;
+  min-height: 44px;
+  min-width: 44px;
+  padding: 0 4px;
+  border: 0;
+  background: transparent;
+  color: white;
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.st-page .st-live-toggle:focus-visible { outline: 2px solid white; outline-offset: -3px; }
+
 .st-tone-1 .st-pane-strip { background: var(--st-night-row); }
 .st-tone-2 .st-pane-strip { background: #155f96; }
 .st-tone-3 .st-pane-strip { background: #475a79; }
@@ -89,8 +110,8 @@
   touch-action: pan-y;
 }
 
-.st-chart[role="slider"] { cursor: crosshair; }
-.st-page .st-chart:focus-visible { outline-offset: -3px; }
+.st-pane [role="slider"], .st-chart[role="slider"] { cursor: crosshair; }
+.st-page [role="slider"]:focus-visible { outline-offset: -3px; }
 .st-chart svg { display: block; width: 100%; height: 100%; }
 
 .st-marker, .st-readout, .st-live {
@@ -129,6 +150,7 @@
 }
 
 .st-heat, .st-samples {
+  position: relative;
   display: grid;
   height: 100%;
   padding: 4px;
@@ -140,7 +162,17 @@
   background: #f0f6fb;
 }
 
-.st-heat i { background: #185894; }
+.st-selected-tile {
+  outline: 2px solid white;
+  outline-offset: -3px;
+  box-shadow: inset 0 0 0 4px #172331;
+}
+
+.st-heat .st-readout, .st-samples .st-readout {
+  left: 3px;
+  max-width: calc(100% - 6px);
+  padding-inline: 4px;
+}
 
 .st-samples {
   grid-template: repeat(2, minmax(0, 1fr)) / repeat(3, minmax(0, 1fr));
@@ -179,13 +211,17 @@
   .st-sheet-short { grid-template-rows: repeat(3, minmax(0, 1fr)); }
 }
 
-.st-sheet-compact { grid-template-rows: minmax(min-content, 2fr) minmax(0, 1fr); }
+.st-sheet-compact { grid-template-rows: minmax(min-content, 2fr) minmax(90px, 1fr); }
 .st-sheet-shallow { grid-template-rows: minmax(0, 1fr); }
 
 .st-sheet-compact .st-pitch { padding-block: 4px; }
 .st-sheet-compact .st-pitch h1, .st-sheet-shallow .st-pitch h1 { max-width: none; }
 .st-sheet-compact .st-pitch-actions, .st-sheet-shallow .st-pitch-actions { gap: 12px; }
 .st-sheet-compact .st-btn, .st-sheet-shallow .st-btn { padding-inline: 12px; }
+
+@media (max-height: 300px) {
+  .st-sheet-compact .st-pitch { gap: 1px; padding-block: 1px; }
+}
 
 @media (prefers-reduced-motion: reduce) {
   .st-page *, .st-page *::before, .st-page *::after {
