@@ -1,8 +1,9 @@
 /* Copyright 2017-present, The Visdom Authors */
 
-import { useSyncExternalStore } from 'react';
+import { useRef, useSyncExternalStore } from 'react';
 import { Link } from 'react-router-dom';
 import Chart from './Chart';
+import useLiveRun from './useLiveRun';
 import '../../css/start-hero.css';
 import { BLUE, CHARTS, LIVE_POINTS, LIVE_TARGET } from './chartData';
 
@@ -58,7 +59,9 @@ const Heat = ({ seed }) => (
   </div>
 );
 
-export default function StartHero({ boardRef, count }) {
+export default function StartHero() {
+  const boardRef = useRef(null);
+  const count = useLiveRun(boardRef);
   const columns = useSyncExternalStore(onResize, screenColumns);
   const mode = useSyncExternalStore(onResize, screenMode);
   const compact = mode === 'compact';

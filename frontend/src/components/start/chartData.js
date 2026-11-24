@@ -8,7 +8,7 @@ export const LIVE_POINTS = 120;
 export const LIVE_START = 50;
 export const LIVE_TICK_MS = 700;
 
-const curve = (n, start, end, noise, seed) => {
+export const curve = (n, start, end, noise, seed) => {
   let s = seed;
   const rnd = () => {
     s = (s * 9301 + 49297) % 233280;
