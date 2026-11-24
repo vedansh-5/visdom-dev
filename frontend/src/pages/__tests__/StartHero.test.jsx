@@ -184,23 +184,25 @@ it('inspects the drawn digit on tap, keeps the touch selection and clears it on 
   expect(grid.querySelector('.st-readout')).toBeNull();
 });
 
-it('groups plot strips and traces by measurement and gives attention a warm heat scale', () => {
+it('groups plot strips and traces by measurement and gives attention its own heat scale', () => {
   vi.stubGlobal('innerWidth', 2560);
   renderStart();
   const pane = title => within(board()).getByRole('slider', { name: title }).closest('.st-pane');
   const colour = title => pane(title).style.getPropertyValue('--st-plot-colour');
   for (const [title, family] of [
     ['Training loss', 'blue'], ['Validation loss', 'blue'], ['Validation accuracy', 'green'],
-    ['Learning rate', 'orange'], ['GPU memory, GB', 'muted'], ['Gradient norm', 'muted'],
+    ['Learning rate', 'cyan'], ['GPU memory, GB', 'muted'], ['Gradient norm', 'muted'],
   ]) {
     expect(colour(title)).toBe(`var(--pub-${family})`);
     expect(pane(title).querySelector('polyline')).toHaveAttribute('stroke', colour(title));
     expect(pane(title).querySelector('path.st-chart-grid')).toBeInTheDocument();
   }
   expect(pane('Validation loss').querySelectorAll('polyline')[1]).toHaveAttribute('stroke-dasharray');
-  expect(colour('Sample batch')).toBe('var(--pub-coral)');
+  for (const title of ['Sample batch', 'Validation batch', 'Augmented batch']) {
+    expect(colour(title)).toBe('var(--pub-raspberry)');
+  }
   expect(colour('Class predictions')).toBe('var(--pub-teal)');
   expect(colour('Confusion matrix')).toBe(colour('Class predictions'));
-  expect(colour('Attention weights')).toBe('var(--pub-orange)');
+  expect(colour('Attention weights')).toBe('var(--pub-raspberry)');
   expect(colour('Class attention')).toBe(colour('Attention weights'));
 });

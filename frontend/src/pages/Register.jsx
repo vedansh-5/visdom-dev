@@ -139,7 +139,7 @@ fetchSuggestion();
 
         {error && (
           <div style={{
-            background: 'var(--pub-blush)',
+            background: 'var(--pub-red-tint)',
             border: '1px solid var(--danger-bg)',
             borderRadius: '2px',
             padding: '10px',

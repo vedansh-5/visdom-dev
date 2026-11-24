@@ -1,12 +1,13 @@
 /* Copyright 2017-present, The Visdom Authors */
 
-:where(.site-layout, .st-page) {
+:where(.site-layout, .st-page, #root:has(.site-layout) ~ .visdom-toast-container) {
   --pub-blue: #20598b;
   --pub-blue-deep: #16416a;
   --pub-green: #216449;
-  --pub-orange: #945019;
+  --pub-cyan: #006e86;
   --pub-teal: #12645f;
-  --pub-coral: #984338;
+  --pub-raspberry: #a3245a;
+  --pub-red: #b21f2d;
   --pub-ink: #172a32;
   --pub-muted: #455c63;
   --pub-night: #152c33;
@@ -14,9 +15,8 @@
   --pub-paper: #f8faf8;
   --pub-white: #fff;
   --pub-mint: #e7f3ed;
-  --pub-sand: #faf0df;
   --pub-ice: #e7f1f7;
-  --pub-blush: #f6e8e4;
+  --pub-red-tint: #fcebed;
   --pub-rule: #c9d6d5;
   --pub-control-border: #71898c;
   --pub-light-ink: #e5f1f0;

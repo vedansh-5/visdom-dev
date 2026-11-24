@@ -20,7 +20,7 @@ const PANES = [
   ['Validation samples', 'digits'], ['Accuracy · ResNet', 'acc'],
 ];
 
-const tileColours = { digits: 'var(--pub-coral)', heat: 'var(--pub-teal)', attention: 'var(--pub-orange)' };
+const tileColours = { digits: 'var(--pub-raspberry)', heat: 'var(--pub-teal)', attention: 'var(--pub-raspberry)' };
 const columnBreakpoints = [[2560, 10], [1920, 8], [1680, 7], [1280, 6], [1024, 5], [768, 4], [480, 3], [0, 2]];
 const screenColumns = () => columnBreakpoints.find(([minWidth]) => window.innerWidth >= minWidth)[1];
 const screenMode = () => {

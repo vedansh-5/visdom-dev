@@ -96,7 +96,7 @@
   --text-secondary: var(--pub-muted);
   --text-muted: var(--pub-muted);
   --vc-text-muted: var(--pub-muted);
-  --danger-bg: var(--pub-coral);
+  --danger-bg: var(--pub-red);
   --success-bg: var(--pub-green);
   --btn-border: var(--pub-control-border);
   --panel-border: var(--pub-rule);
