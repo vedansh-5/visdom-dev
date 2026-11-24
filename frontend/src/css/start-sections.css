@@ -52,11 +52,11 @@
 .st-page .st-code {
   max-width: 100%;
   padding: 12px;
-  overflow-x: auto;
   background: #eaf0f5;
   color: #17354c;
   font: 13px/1.6 ui-monospace, monospace;
-  white-space: pre;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .st-team-preview .st-chart { height: 96px; }
