@@ -164,6 +164,7 @@
   cursor: pointer;
 }
 .st-frag :is(button, select):hover, .st-install button:hover { background: var(--pub-ice); }
+.st-frag select { height: max(44px, 2.75em); }
 .st-demo-list li, .st-demo-toolbar {
   display: flex;
   flex-wrap: wrap;
@@ -204,8 +205,11 @@
   .st-run-browser { display: block; }
 }
 @media (max-width: 700px) {
-  .st-feature-row, .st-feature-body, .st-open-layout, .st-cta .st-inner { grid-template-columns: minmax(0, 1fr); }
+  .st-feature-row, .st-feature-body, .st-open-layout { grid-template-columns: minmax(0, 1fr); }
   .st-feature-row:nth-of-type(even) .st-feature-copy { grid-column: auto; grid-row: auto; }
+}
+@media (max-width: 767px) {
+  .st-cta .st-inner { grid-template-columns: minmax(0, 1fr); }
 }
 @media (max-width: 600px) {
   .st-page .st-step-list { grid-template-columns: minmax(0, 1fr); gap: 14px; }

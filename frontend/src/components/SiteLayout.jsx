@@ -103,7 +103,9 @@ function SiteFooter() {
         <div>visdom.dev is run by <a href={fossasia} rel="noopener">{CONTROLLER.name}</a>, Singapore.</div>
         <a href={fossasia} rel="noopener">© {new Date().getFullYear()} FOSSASIA</a>
       </div>
-      <div className="site-wordmark" aria-hidden="true">visdom</div>
+      <svg className="site-wordmark" viewBox="0 0 700 205" aria-hidden="true" focusable="false">
+        <text x="350" y="180" textAnchor="middle" textLength="686" lengthAdjust="spacingAndGlyphs">visdom</text>
+      </svg>
     </footer>
   );
 }

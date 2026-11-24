@@ -22,7 +22,10 @@ it('links home from the header and groups public destinations in the footer', ()
   }
   expect(footer.getAllByRole('heading').map(heading => heading.textContent)).toEqual(['Product', 'Open source', 'Legal']);
   expect(within(footer.getByRole('heading', { name: 'Product' }).parentElement).getByRole('link', { name: 'Contact us' })).toBeVisible();
-  expect(screen.getByRole('contentinfo').lastElementChild).toHaveTextContent('visdom');
+  const wordmark = screen.getByRole('contentinfo').lastElementChild;
+  expect(wordmark).toHaveTextContent('visdom');
+  expect(wordmark).toHaveAttribute('viewBox');
+  expect(wordmark).toHaveAttribute('aria-hidden', 'true');
   expect(screen.getByRole('contentinfo')).toHaveTextContent('visdom.dev is run by FOSSASIA PTE. LTD., Singapore.');
   for (const name of ['FOSSASIA PTE. LTD.', `© ${new Date().getFullYear()} FOSSASIA`]) {
     const link = footer.getByRole('link', { name });
