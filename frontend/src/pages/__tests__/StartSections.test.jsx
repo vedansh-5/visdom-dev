@@ -16,11 +16,7 @@ afterEach(() => {
 const sectionStyles = readFileSync('src/css/start-sections.css', 'utf8');
 const visit = () => render(<MemoryRouter><Start /></MemoryRouter>);
 const panel = name => within(screen.getByRole('region', { name }));
-const openDemo = name => {
-  const summary = screen.getByText(name, { selector: 'summary' });
-  fireEvent.click(summary);
-  return within(summary.closest('details'));
-};
+const featureDemo = name => within(screen.getByText(name, { selector: 'summary' }).closest('details'));
 
 it('keeps all nine runs reachable and displays the selected run metrics and chart', () => {
   visit();
@@ -76,12 +72,12 @@ it('changes a role and supports undo for keys and join requests', () => {
   const role = screen.getByRole('combobox', { name: 'Role for raj@fossasia.org' });
   fireEvent.change(role, { target: { value: 'Viewer' } });
   expect(role).toHaveValue('Viewer');
-  const key = within(openDemo('Scoped API keys').getByText('lab-gpu-01').closest('li'));
+  const key = within(featureDemo('Scoped API keys').getByText('lab-gpu-01').closest('li'));
   fireEvent.click(key.getByRole('button', { name: 'Revoke' }));
   expect(key.getByText('Revoked')).toBeVisible();
   fireEvent.click(key.getByRole('button', { name: 'Undo' }));
   expect(key.getByRole('button', { name: 'Revoke' })).toBeVisible();
-  const request = within(openDemo('Join links').getByText('priya@fossasia.org').closest('li'));
+  const request = within(featureDemo('Join links').getByText('priya@fossasia.org').closest('li'));
   for (const [action, result] of [['Approve', 'Approved'], ['Decline', 'Declined']]) {
     fireEvent.click(request.getByRole('button', { name: action }));
     expect(request.getByText(result)).toBeVisible();
@@ -91,14 +87,14 @@ it('changes a role and supports undo for keys and join requests', () => {
 
 it('sorts numeric trials in both directions and copies the displayed Python', async () => {
   visit();
-  const sweeps = openDemo('Experiments and sweeps');
+  const sweeps = featureDemo('Experiments and sweeps');
   const sort = sweeps.getByRole('button', { name: 'Accuracy' });
   fireEvent.click(sort);
   expect(sweeps.getAllByRole('row')[1]).toHaveTextContent('0.871');
   fireEvent.click(sort);
   expect(sweeps.getAllByRole('row')[1]).toHaveTextContent('0.902');
   expect(sort.closest('th')).toHaveAttribute('aria-sort', 'descending');
-  const client = openDemo('The client you already use');
+  const client = featureDemo('The client you already use');
   copyToClipboard.mockResolvedValue(true);
   fireEvent.click(client.getByRole('button', { name: 'Copy' }));
   expect(copyToClipboard).toHaveBeenCalledWith(client.getByText(/vis.images\(batch/).textContent);
@@ -133,12 +129,19 @@ it('wraps long example lines while preserving Python indentation for copying', (
   expect(screen.getByLabelText('Python plotting example').textContent).toContain('\n         win=');
 });
 
-it('keeps two featured demos visible and four further demos in a compact list', () => {
+it('opens all four feature demos by default and lets visitors collapse them independently', () => {
   visit();
   const features = screen.getByRole('region', { name: 'What you get' });
   expect(within(features).getAllByRole('region')).toHaveLength(2);
-  expect(features.querySelectorAll('details:not([open])')).toHaveLength(4);
-  expect(openDemo('Scoped API keys').getAllByRole('button', { name: 'Revoke' })).toHaveLength(2);
+  expect(features.querySelectorAll('details[open]')).toHaveLength(4);
+  const summary = within(features).getByText('Scoped API keys', { selector: 'summary' });
+  const key = within(features).getByText('lab-gpu-01');
+  expect(key).toBeVisible();
+  fireEvent.click(summary);
+  expect(key).not.toBeVisible();
+  expect(features.querySelectorAll('details[open]')).toHaveLength(3);
+  fireEvent.click(summary);
+  expect(key).toBeVisible();
 });
 
 it('keeps the four steps compact and the full working script just below them', () => {
