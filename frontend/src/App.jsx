@@ -1,5 +1,6 @@
 /* Copyright 2017-present, The Visdom Authors */
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { useLayoutEffect } from 'react';
+import { BrowserRouter, Routes, Route, useLocation, useNavigationType } from 'react-router-dom';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import Login from './pages/Login';
 import Register from './pages/Register';
@@ -13,6 +14,21 @@ import Start from './pages/Start';
 import NotFound from './pages/NotFound';
 
 import SiteLayout from './components/SiteLayout';
+
+function PageNavigation() {
+  const { pathname } = useLocation();
+  const navigation = useNavigationType();
+  useLayoutEffect(() => {
+    if (navigation === 'POP') return;
+    const heading = document.querySelector('h1') ?? document.querySelector('main');
+    if (heading) {
+      heading.tabIndex = -1;
+      heading.focus({ preventScroll: true });
+    }
+    document.documentElement.scrollTop = 0;
+  }, [pathname, navigation]);
+  return null;
+}
 
 function App() {
   return (
@@ -44,6 +60,7 @@ function App() {
           }
         />
       </Routes>
+      <PageNavigation />
     </BrowserRouter>
   );
 }

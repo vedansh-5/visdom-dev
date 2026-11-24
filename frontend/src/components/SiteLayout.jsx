@@ -41,7 +41,9 @@ function SiteHeader({ sticky }) {
         aria-controls="site-menu-panel" onClick={() => menu.current.showModal()}>
         <Menu size={20} aria-hidden="true" /> Menu
       </button>
-      <dialog id="site-menu-panel" ref={menu} aria-label="Site menu" onClose={() => trigger.current?.focus()}
+      <dialog id="site-menu-panel" ref={menu} aria-label="Site menu" onClose={() => {
+        if (document.activeElement === document.body || menu.current?.contains(document.activeElement)) trigger.current?.focus();
+      }}
         onClick={event => { if (event.target === menu.current) menu.current.close(); }}
         onKeyDown={event => {
           if (event.key !== 'Tab') return;

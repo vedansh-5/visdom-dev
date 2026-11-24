@@ -60,6 +60,14 @@
 .site-layout :is(.auth-wrapper, .gc-legal-wrapper) { min-height: calc(100svh - 60px); }
 .site-layout .auth-panel :is(input, button, a), .site-layout .gc-legal a { min-height: 44px; min-width: 44px; }
 .site-layout :is(.auth-panel, .gc-legal) a { display: inline-flex; align-items: center; }
+.site-layout .auth-panel {
+  --text-muted: #596675;
+  --vc-text-muted: #596675;
+  --danger-bg: #aa3131;
+  --success-bg: #246639;
+}
+.auth-title { margin: 0; color: var(--text-muted); font-size: 15px; font-weight: 600; }
+.site-layout .pw-field-input { padding-right: 52px; }
 .site-layout .pw-field-toggle { width: 44px; }
 @media (max-width: 767px) {
   .site-header > nav { display: none; }
