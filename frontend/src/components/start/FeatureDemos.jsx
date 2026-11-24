@@ -138,16 +138,34 @@ const FEATURES = [
 
 export default function FeatureDemos() {
   return (
-    <section className="st-features st-inner" aria-labelledby="st-get">
-      <h2 id="st-get">What you get</h2>
-      <p className="st-demo-note">Try the demos. Changes reset when you reload.</p>
-      <div className="st-cells">
-        {FEATURES.map(([name, description, Demo], i) => (
-          <section key={name} className="st-cell" aria-labelledby={`feature-${i}`}>
-            <h3 id={`feature-${i}`}>{name}</h3><p>{description}</p>
-            <div className="st-frag"><Demo /></div>
+    <section className="st-features" aria-labelledby="st-get">
+      <div className="st-inner">
+        <header data-reveal>
+          <h2 id="st-get">What you get</h2>
+          <p className="st-demo-note">Try the demos. Changes reset when you reload.</p>
+        </header>
+        {FEATURES.slice(0, 2).map(([name, description, Demo], i) => (
+          <section key={name} className="st-feature-row" aria-labelledby={`feature-${i}`}>
+            <div data-reveal className="st-feature-copy">
+              <h3 id={`feature-${i}`}>{name}</h3>
+              <p>{description}</p>
+            </div>
+            <div data-reveal className="st-frag"><Demo /></div>
           </section>
         ))}
+        <ul className="st-feature-list">
+          {FEATURES.slice(2).map(([name, description, Demo]) => (
+            <li data-reveal key={name}>
+              <details>
+                <summary>{name}</summary>
+                <div className="st-feature-body">
+                  <p>{description}</p>
+                  <div className="st-frag"><Demo /></div>
+                </div>
+              </details>
+            </li>
+          ))}
+        </ul>
       </div>
     </section>
   );
