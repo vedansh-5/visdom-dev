@@ -126,3 +126,16 @@ it('wraps long example lines while preserving Python indentation for copying', (
   expect(screen.getByLabelText('Connect your script to Visdom').textContent).toContain('\n    vis.line(');
   expect(screen.getByLabelText('Python plotting example').textContent).toContain('\n         win=');
 });
+
+it('keeps each feature preview directly below its description', () => {
+  visit();
+  render(<style>{sectionStyles}</style>);
+  const cards = panel('What you get').getAllByRole('region');
+  expect(cards).toHaveLength(6);
+  for (const card of cards) {
+    const description = card.querySelector('p');
+    const preview = description.nextElementSibling;
+    expect(preview).toHaveClass('st-frag');
+    expect(getComputedStyle(preview).marginTop).not.toBe('auto');
+  }
+});

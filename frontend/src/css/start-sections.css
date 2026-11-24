@@ -155,9 +155,7 @@
 .st-cells { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; margin-top: 28px; }
 
 .st-cell {
-  display: flex;
   min-width: 0;
-  flex-direction: column;
   padding: clamp(16px, 1.65vw, 28px);
   background: white;
   border: 1px solid #cdd6e0;
@@ -166,7 +164,7 @@
 
 .st-cell h3 { font-size: clamp(20px, 1.6vw, 28px); }
 .st-cell p { margin: 10px 0 18px; color: #495463; font-size: 15px; }
-.st-frag { margin-top: auto; font-size: 14px; }
+.st-frag { font-size: 14px; }
 .st-frag .st-preview-plot { border: 0; }
 .st-frag .st-chart { height: 155px; }
 .st-frag strong, .st-frag small { display: block; }
