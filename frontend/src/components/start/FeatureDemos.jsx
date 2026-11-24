@@ -156,7 +156,7 @@ export default function FeatureDemos() {
         <ul className="st-feature-list">
           {FEATURES.slice(2).map(([name, description, Demo]) => (
             <li data-reveal key={name}>
-              <details>
+              <details open>
                 <summary>{name}</summary>
                 <div className="st-feature-body">
                   <p>{description}</p>
