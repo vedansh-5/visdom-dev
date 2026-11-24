@@ -218,13 +218,13 @@
   to { opacity: 1; transform: translateY(0); }
 }
 @keyframes st-first-plot-draw {
-  from { clip-path: inset(-4px 100% -4px -4px); }
-  to { clip-path: inset(-4px); }
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
 }
 @media (prefers-reduced-motion: no-preference) {
   .st-page .st-entered { animation: st-section-enter .4s ease-out backwards; }
   .st-page :is(.st-field:nth-child(2), .st-run-browser, .st-frag, .st-install, .st-first-plot).st-entered { animation-delay: 70ms; }
   .st-page .st-field:nth-child(3).st-entered { animation-delay: 110ms; }
   .st-page .st-field:nth-child(4).st-entered { animation-delay: 150ms; }
-  .st-first-plot.st-entered polyline { animation: st-first-plot-draw .9s ease-in-out 80ms backwards; }
+  .st-first-plot.st-entered clipPath rect { animation: st-first-plot-draw .9s ease-in-out 80ms backwards; }
 }
