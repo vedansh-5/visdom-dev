@@ -2,8 +2,12 @@
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
-import { expect, it } from 'vitest';
+import { beforeEach, expect, it, vi } from 'vitest';
 import SiteLayout from '../SiteLayout';
+
+const session = vi.hoisted(() => ({ user: null, loading: false }));
+vi.mock('../../context/AuthContext', () => ({ useAuth: () => session }));
+beforeEach(() => { Object.assign(session, { user: null, loading: false }); });
 
 function mount() {
   render(<MemoryRouter><SiteLayout><main>Page</main></SiteLayout></MemoryRouter>);
@@ -19,8 +23,25 @@ it('links home from the header and groups public destinations in the footer', ()
   expect(footer.getByText('visdom.dev is run by FOSSASIA PTE. LTD., Singapore.')).toBeVisible();
 });
 
-it('cycles focus inside the mobile menu and returns focus after dismissal', async () => {
+it.each([
+  [null, 'Get started', '/register'],
+  [{ id: 1 }, 'Open dashboard', '/'],
+])('uses the current session for navigation and restores focus after the menu closes', async (account, action, path) => {
+  session.user = account;
   mount();
+  const header = within(screen.getByRole('banner'));
+  const footer = within(screen.getByRole('contentinfo'));
+  for (const region of [header, footer]) {
+    expect(region.getByRole('link', { name: action })).toHaveAttribute('href', path);
+    if (account) {
+      expect(region.queryByRole('link', { name: 'Sign in' })).toBeNull();
+      expect(region.queryByRole('link', { name: 'Get started' })).toBeNull();
+    } else {
+      expect(region.getByRole('link', { name: 'Sign in' })).toHaveAttribute('href', '/login');
+      expect(region.queryByRole('link', { name: 'Open dashboard' })).toBeNull();
+    }
+  }
+  expect(footer.getByText('Summit photo by Michael Cannon')).toBeVisible();
   const user = userEvent.setup();
   const trigger = screen.getByRole('button', { name: 'Menu' });
   const panel = document.querySelector('dialog');
@@ -34,10 +55,21 @@ it('cycles focus inside the mobile menu and returns focus after dismissal', asyn
   const close = within(dialog).getByRole('button', { name: 'Close menu' });
   close.focus();
   await user.tab({ shift: true });
-  expect(within(dialog).getByRole('link', { name: 'Get started' })).toHaveFocus();
+  const destination = within(dialog).getByRole('link', { name: action });
+  expect(destination).toHaveAttribute('href', path);
+  expect(destination).toHaveFocus();
   await user.tab();
   expect(close).toHaveFocus();
   await user.click(close);
   expect(screen.queryByRole('dialog')).toBeNull();
   expect(trigger).toHaveFocus();
+});
+
+it('keeps public links available while the session is being checked', () => {
+  session.loading = true;
+  mount();
+  expect(screen.getAllByRole('link', { name: 'Pricing' })).toHaveLength(2);
+  for (const name of ['Sign in', 'Get started', 'Open dashboard']) {
+    expect(screen.queryByRole('link', { name })).toBeNull();
+  }
 });

@@ -1,17 +1,23 @@
 /* Copyright 2017-present, The Visdom Authors */
 import { Link, useLocation } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
 import { UPDATED } from '../content/legal';
 import usePageTitle from '../hooks/usePageTitle';
 
 const LegalPage = ({ title, sections }) => {
   usePageTitle(title);
   const location = useLocation();
+  const { user, loading } = useAuth();
   const kept = { from: location.state?.from };
 
   return (
     <div className="gc-legal-wrapper">
       <article className="gc-legal">
-        <Link to={`/login${location.search}`} state={kept} className="gc-legal-back">Back to sign in</Link>
+        {!loading && (
+          <Link to={user ? '/' : `/login${location.search}`} state={user ? undefined : kept} className="gc-legal-back">
+            {user ? 'Open dashboard' : 'Back to sign in'}
+          </Link>
+        )}
         <h1 className="gc-legal-title">{title}</h1>
         <p className="gc-legal-updated">Last updated {UPDATED}</p>
         {sections.map((section) => (

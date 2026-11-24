@@ -1,13 +1,16 @@
 /* Copyright 2017-present, The Visdom Authors */
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { expect, it, vi } from 'vitest';
+import { beforeEach, expect, it, vi } from 'vitest';
 import App from '../../App';
 
+const session = vi.hoisted(() => ({ user: null, loading: false }));
 vi.mock('../../context/AuthContext', () => ({
-  useAuth: () => ({ user: null, loading: false }),
+  useAuth: () => session,
   api: { get: vi.fn(async () => ({ data: { username: 'ana' } })) },
 }));
+
+beforeEach(() => { session.user = null; });
 
 it('takes visitors to the new heading from the footer and preserves Back scrolling', async () => {
   window.history.replaceState({}, '', '/');
@@ -34,4 +37,20 @@ it('names the password and account fields on sign-in and registration', async ()
   expect(screen.getByLabelText('Confirm Password')).toHaveAttribute('type', 'password');
   await user.click(screen.getByRole('button', { name: 'Choose my own' }));
   expect(screen.getByLabelText('Username')).toHaveAttribute('type', 'text');
+});
+
+it.each([
+  [null, 'Back to sign in', '/login?plan=pro'],
+  [{ id: 1 }, 'Open dashboard', '/'],
+])('returns from Privacy to the right destination', async (account, label, path) => {
+  session.user = account;
+  window.history.replaceState({ usr: { from: '/share/join' } }, '', '/privacy?plan=pro');
+  render(<App />);
+  const article = within(screen.getByRole('article'));
+  const link = article.getByRole('link', { name: label });
+  expect(link).toHaveAttribute('href', path);
+  if (!account) {
+    await userEvent.click(link);
+    expect(window.history.state.usr.from).toBe('/share/join');
+  }
 });
