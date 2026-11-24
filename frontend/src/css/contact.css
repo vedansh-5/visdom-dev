@@ -80,6 +80,7 @@
 .contact-guide p { margin: .4rem 0 1.25rem; line-height: 1.55; color: var(--pub-muted); }
 .contact-guide p:last-child { margin-bottom: 0; }
 .contact-field textarea { resize: vertical; }
+.contact-field select { height: max(44px, 2.75em); }
 .contact-panel button {
   min-height: 44px;
   border: 0;
