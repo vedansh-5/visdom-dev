@@ -1,0 +1,71 @@
+/* Copyright 2017-present, The Visdom Authors */
+.site-layout {
+  --site-gutter: clamp(16px, 5vw, 88px);
+  background: #fff;
+  color: #182333;
+  min-height: 100vh;
+}
+.site-header {
+  height: 60px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 var(--site-gutter);
+  background: #fff;
+  border-bottom: 1px solid #cdd6e0;
+  position: relative;
+  z-index: 5;
+}
+.site-sticky { position: sticky; top: 0; }
+.site-brand, .site-links a, .site-menu, .site-footer a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  min-width: 44px;
+  color: inherit;
+  text-decoration: none;
+}
+.site-brand { gap: 8px; font-size: 24px; font-weight: 730; letter-spacing: -.045em; }
+.site-brand img { border-radius: 5px; }
+.site-links { display: flex; align-items: center; gap: clamp(12px, 2vw, 32px); }
+.site-links a, .site-menu { font-size: 14px; font-weight: 600; }
+.site-links a:hover, .site-footer a:hover { text-decoration: underline; }
+.site-links .site-primary { padding: 0 17px; background: #3b5998; color: #fff; border-radius: 4px; }
+.site-menu {
+  display: none;
+  gap: 8px;
+  cursor: pointer;
+  background: white;
+  border: 1px solid #d0d8e1;
+  border-radius: 4px;
+  padding: 0 12px;
+}
+.site-header dialog { inset: 6px var(--site-gutter) auto auto; padding: 0; margin: 0; border: 1px solid #cdd6e0; border-radius: 6px; width: min(320px, calc(100% - 32px)); color: inherit; }
+.site-header dialog::backdrop { background: rgb(17 28 46 / .4); }
+.site-menu-inner { padding: 12px; display: grid; justify-items: end; gap: 8px; }
+.site-menu-inner nav { display: grid; gap: 2px; width: 100%; }
+.site-menu-inner a { padding: 0 16px; }
+.site-footer { background: #172234; color: #f3f6fa; padding: 40px var(--site-gutter) 16px; }
+.site-footer-links, .site-colophon, .site-credit { max-width: 1440px; margin-inline: auto; }
+.site-footer-links { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; padding-bottom: 24px; }
+.site-footer h2 { margin: 0 0 7px; color: #adc5e8; font-size: 13px; }
+.site-footer section { display: flex; flex-direction: column; align-items: flex-start; min-width: 0; }
+.site-footer a { font-size: 14px; }
+.site-colophon, .site-credit { display: flex; align-items: center; flex-wrap: wrap; gap: 0 16px; }
+.site-colophon { border-top: 1px solid #425268; padding-top: 12px; justify-content: space-between; font-size: 14px; }
+.site-credit, .site-credit a { font-size: 12px; color: #c6d4e9; }
+.site-credit a, .site-colophon a { text-decoration: underline; text-underline-offset: 3px; }
+.site-layout :focus-visible { outline: 3px solid #1a6fb0; outline-offset: 2px; }
+.site-footer :focus-visible { outline-color: #a1d7ff; }
+.site-layout :is(.auth-wrapper, .gc-legal-wrapper) { min-height: calc(100svh - 60px); }
+.site-layout .auth-panel :is(input, button, a), .site-layout .gc-legal a { min-height: 44px; min-width: 44px; }
+.site-layout :is(.auth-panel, .gc-legal) a { display: inline-flex; align-items: center; }
+.site-layout .pw-field-toggle { width: 44px; }
+@media (max-width: 767px) {
+  .site-header > nav { display: none; }
+  .site-menu { display: inline-flex; }
+  .site-footer-links { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px 8px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+}

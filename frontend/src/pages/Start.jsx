@@ -429,43 +429,6 @@ const Start = () => {
         </div>
       </main>
 
-      <footer className="st-footer">
-        <div className="st-blocks" role="img" aria-label="visdom">
-          {'visdom'.split('').map((letter, i) => (
-            <span key={i} aria-hidden="true">{letter}</span>
-          ))}
-        </div>
-        <div className="st-foot">
-          <div>
-            <h2>Product</h2>
-            <Link to="/register">Get started</Link>
-            <Link to="/login">Sign in</Link>
-          </div>
-          <div>
-            <h2>Open source</h2>
-            <a href={GITHUB_VISDOM}>fossasia/visdom</a>
-            <a href={GITHUB_VISDOM_DEV}>fossasia/visdom-dev</a>
-          </div>
-          <div>
-            <h2>Legal</h2>
-            <Link to="/privacy">Privacy</Link>
-            <Link to="/cookies">Cookies</Link>
-          </div>
-          <div className="st-contact">
-            <h2>Contact</h2>
-            <span>FOSSASIA</span>
-            <a href="mailto:office@fossasia.org">office@fossasia.org</a>
-          </div>
-        </div>
-        <div className="st-last">
-          <span>
-            Sample images from Unsplash via picsum.photos. Summit photo: &ldquo;FOSSASIA Summit 2019&rdquo; by Michael Cannon,{' '}
-            <a href="https://creativecommons.org/licenses/by-sa/2.0">CC BY-SA 2.0</a>, via{' '}
-            <a href="https://commons.wikimedia.org/wiki/File:FOSSASIA_Summit_2019.jpg">Wikimedia Commons</a>.
-          </span>
-          <Link to="/register" className="st-btn">Get started</Link>
-        </div>
-      </footer>
     </div>
   );
 };

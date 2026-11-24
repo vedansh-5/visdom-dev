@@ -116,7 +116,7 @@ const Login = () => {
               type="email"
               required
               className="visdom-input"
-              placeholder="you@example.com"
+              placeholder="Your email address"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
             />
