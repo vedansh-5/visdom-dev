@@ -1,6 +1,6 @@
 /* Copyright 2017-present, The Visdom Authors */
 
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import App from '../../App';
 
@@ -45,6 +45,16 @@ describe('Start page', () => {
     expect(logos).toHaveLength(1);
     expect(home).toContainElement(logos[0]);
     expect(home).toHaveAttribute('href', '/');
+  });
+
+  it('introduces the open source projects with text and repository links', () => {
+    visit('/');
+    const section = within(screen.getByRole('region', { name: 'Built in the open' }));
+    expect(section.queryByRole('img')).toBeNull();
+    expect(section.getByText(/Visdom is open source and run by FOSSASIA/)).toBeVisible();
+    for (const project of ['fossasia/visdom', 'fossasia/visdom-dev']) {
+      expect(section.getByRole('link', { name: project })).toHaveAttribute('href', `https://github.com/${project}`);
+    }
   });
 
   it('shows the same client snippet as the Keys tab', () => {

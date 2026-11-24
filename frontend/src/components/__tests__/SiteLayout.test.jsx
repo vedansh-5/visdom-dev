@@ -20,6 +20,7 @@ it('links home from the header and groups public destinations in the footer', ()
   for (const [name, path] of [['Pricing', '/pricing'], ['Terms', '/terms'], ['Contact us', '/contact']]) {
     expect(footer.getByRole('link', { name })).toHaveAttribute('href', path);
   }
+  expect(footer.queryByRole('link', { name: 'Wikimedia Commons' })).toBeNull();
   expect(footer.getByText('visdom.dev is run by FOSSASIA PTE. LTD., Singapore.')).toBeVisible();
 });
 
@@ -41,7 +42,6 @@ it.each([
       expect(region.queryByRole('link', { name: 'Open dashboard' })).toBeNull();
     }
   }
-  expect(footer.getByText('Summit photo by Michael Cannon')).toBeVisible();
   const user = userEvent.setup();
   const trigger = screen.getByRole('button', { name: 'Menu' });
   const panel = document.querySelector('dialog');

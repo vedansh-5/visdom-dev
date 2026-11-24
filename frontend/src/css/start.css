@@ -52,11 +52,6 @@
   color: inherit;
 }
 
-.st-page img {
-  display: block;
-  max-width: 100%;
-}
-
 .st-page :focus-visible {
   outline: 3px solid var(--st-accent);
   outline-offset: 2px;

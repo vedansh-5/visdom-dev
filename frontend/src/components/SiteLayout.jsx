@@ -98,11 +98,6 @@ function SiteFooter() {
         <div>visdom.dev is run by {CONTROLLER.name}, Singapore.</div>
         <Link to="/privacy">© {new Date().getFullYear()} FOSSASIA</Link>
       </div>
-      <div className="site-credit">
-        <span>Summit photo by Michael Cannon</span>
-        <a href="https://commons.wikimedia.org/wiki/File:FOSSASIA_Summit_2019.jpg">Wikimedia Commons</a>
-        <a href="https://creativecommons.org/licenses/by-sa/2.0">CC BY-SA 2.0</a>
-      </div>
     </footer>
   );
 }
