@@ -2,18 +2,27 @@
 import { useEffect, useRef } from 'react';
 import { Link, Outlet } from 'react-router-dom';
 import { Menu, X } from 'lucide-react';
+import { useAuth } from '../context/AuthContext';
 import { CONTROLLER } from '../content/legal';
 import '../css/site.css';
 
 const github = 'https://github.com/fossasia/visdom';
+
+function AccountLinks({ children, className }) {
+  const { user, loading } = useAuth();
+  if (loading) return null;
+  return user ? <Link to="/" className={className}>Open dashboard</Link> : children;
+}
 
 function Navigation({ onNavigate }) {
   return (
     <nav aria-label="Main navigation" className="site-links" onClick={onNavigate}>
       <Link to="/pricing">Pricing</Link>
       <a href={github}>GitHub</a>
-      <Link to="/login">Sign in</Link>
-      <Link to="/register" className="site-primary">Get started</Link>
+      <AccountLinks className="site-primary">
+        <Link to="/login">Sign in</Link>
+        <Link to="/register" className="site-primary">Get started</Link>
+      </AccountLinks>
     </nav>
   );
 }
@@ -73,7 +82,14 @@ function SiteFooter() {
   return (
     <footer className="site-footer">
       <div className="site-footer-links">
-        <section><h2>Product</h2><Link to="/register">Get started</Link><Link to="/login">Sign in</Link><Link to="/pricing">Pricing</Link></section>
+        <section>
+          <h2>Product</h2>
+          <AccountLinks>
+            <Link to="/register">Get started</Link>
+            <Link to="/login">Sign in</Link>
+          </AccountLinks>
+          <Link to="/pricing">Pricing</Link>
+        </section>
         <section><h2>Open source</h2><a href={github}>fossasia/visdom</a><a href={github + '-dev'}>fossasia/visdom-dev</a></section>
         <section><h2>Legal</h2><Link to="/privacy">Privacy</Link><Link to="/cookies">Cookies</Link><Link to="/terms">Terms</Link></section>
         <section><h2>Contact</h2><Link to="/contact">Contact us</Link></section>

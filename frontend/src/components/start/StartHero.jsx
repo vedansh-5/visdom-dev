@@ -80,7 +80,6 @@ export default function StartHero() {
         gridColumn: `${1 + Math.floor((columns - span) / 2)} / span ${span}`,
         gridRow: `${pitchStart} / span ${pitchRows}`,
       }}>
-        <span className="st-mark"><img src="/logo.svg" alt="" />visdom</span>
         <h1>Watch training live, together.</h1>
         <p>{compact || shallow ? 'Live plots, images and text for your team.' :
           'Your plots, images and text in the browser while training runs. Hosted for your team, no server to set up.'}</p>

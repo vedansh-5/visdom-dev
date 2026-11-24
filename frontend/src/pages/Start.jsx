@@ -2,7 +2,7 @@
 import { Link } from 'react-router-dom';
 import StartHero from '../components/start/StartHero';
 import Chart from '../components/start/Chart';
-import { CHARTS } from '../components/start/chartData';
+import { BLUE, CHARTS } from '../components/start/chartData';
 import RunBrowser from '../components/start/RunBrowser';
 import FeatureDemos from '../components/start/FeatureDemos';
 import { plotSnippet } from '../utils/quickstart';
@@ -10,6 +10,8 @@ import '../css/start-sections.css';
 
 const GITHUB_VISDOM = 'https://github.com/fossasia/visdom';
 const GITHUB_VISDOM_DEV = 'https://github.com/fossasia/visdom-dev';
+
+const FIRST_PLOT = [{ y: [0.9, 0.6, 0.4, 0.25], c: BLUE }];
 
 const Start = () => {
   return (
@@ -77,9 +79,16 @@ const Start = () => {
 
         <section className="st-cta" aria-labelledby="st-cta-h">
           <div className="st-inner">
-            <h2 id="st-cta-h">Your first plot in five minutes</h2>
-            <p>Make an account, create a key and add a few lines to your training script.</p>
-            <Link to="/register" className="st-btn st-btn-light">Create an account</Link>
+            <div>
+              <h2 id="st-cta-h">Your first plot in five minutes</h2>
+              <p>Make an account, create a key and add a few lines to your training script.</p>
+              <Link to="/register" className="st-btn st-btn-light">Create an account</Link>
+            </div>
+            <figure className="st-preview-plot st-first-plot">
+              <figcaption className="st-plot-title">Training loss <span>experiment-1</span></figcaption>
+              <Chart label="Training loss from the example script" lines={FIRST_PLOT} />
+              <div className="st-plot-steps"><span>Step 0</span><span>Step 3</span></div>
+            </figure>
           </div>
         </section>
       </main>

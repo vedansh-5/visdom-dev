@@ -4,6 +4,7 @@ import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, expect, it, vi } from 'vitest';
 import Start from '../Start';
+import { readFileSync } from 'node:fs';
 import { copyToClipboard } from '../../utils/clipboard';
 
 vi.mock('../../utils/clipboard', () => ({ copyToClipboard: vi.fn() }));
@@ -12,6 +13,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+const sectionStyles = readFileSync('src/css/start-sections.css', 'utf8');
 const visit = () => render(<MemoryRouter><Start /></MemoryRouter>);
 const panel = name => within(screen.getByRole('region', { name }));
 
@@ -95,4 +97,45 @@ it('sorts numeric trials in both directions and copies the displayed Python', as
   fireEvent.click(client.getByRole('button', { name: 'Copy' }));
   expect(copyToClipboard).toHaveBeenCalledWith(client.getByText(/vis.images\(batch/).textContent);
   expect(await client.findByText('Copied')).toBeVisible();
+});
+
+it('plots the four loss values from the example script beside the sign-up link', () => {
+  visit();
+  const cta = panel('Your first plot in five minutes');
+  const chart = cta.getByRole('slider', { name: 'Training loss from the example script' });
+  const script = screen.getByLabelText('Connect your script to Visdom').textContent;
+  const values = JSON.parse(script.match(/enumerate\((\[[^\]]+\])\)/)[1]);
+  expect(values).toHaveLength(4);
+  expect(chart).toHaveAttribute('aria-valuemax', String(values.length));
+  fireEvent.keyDown(chart, { key: 'Home' });
+  values.forEach((loss, i) => {
+    expect(chart).toHaveAttribute('aria-valuetext', `Point ${i + 1}, ${loss.toFixed(3)}`);
+    fireEvent.keyDown(chart, { key: 'ArrowRight' });
+  });
+  expect(cta.getByRole('link', { name: 'Create an account' })).toHaveAttribute('href', '/register');
+});
+
+it('wraps long example lines while preserving Python indentation for copying', () => {
+  visit();
+  render(<style>{sectionStyles}</style>);
+  for (const name of ['Connect your script to Visdom', 'Install the client', 'Python plotting example']) {
+    const code = screen.getByLabelText(name);
+    expect(getComputedStyle(code).whiteSpace).toBe('pre-wrap');
+    expect(getComputedStyle(code).overflowWrap).toBe('anywhere');
+  }
+  expect(screen.getByLabelText('Connect your script to Visdom').textContent).toContain('\n    vis.line(');
+  expect(screen.getByLabelText('Python plotting example').textContent).toContain('\n         win=');
+});
+
+it('keeps each feature preview directly below its description', () => {
+  visit();
+  render(<style>{sectionStyles}</style>);
+  const cards = panel('What you get').getAllByRole('region');
+  expect(cards).toHaveLength(6);
+  for (const card of cards) {
+    const description = card.querySelector('p');
+    const preview = description.nextElementSibling;
+    expect(preview).toHaveClass('st-frag');
+    expect(getComputedStyle(preview).marginTop).not.toBe('auto');
+  }
 });
