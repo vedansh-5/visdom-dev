@@ -13,6 +13,7 @@ import JoinWorkspace from './pages/JoinWorkspace';
 import Start from './pages/Start';
 import NotFound from './pages/NotFound';
 
+import Pricing from './pages/Pricing';
 import Contact from './pages/Contact';
 import SiteLayout from './components/SiteLayout';
 
@@ -36,6 +37,7 @@ function App() {
     <BrowserRouter>
       <Routes>
         <Route element={<SiteLayout />}>
+          <Route path="/pricing" element={<Pricing />} />
           <Route path="/contact" element={<Contact />} />
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
