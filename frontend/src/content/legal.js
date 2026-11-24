@@ -5,7 +5,7 @@ export const CONTROLLER = {
   address: '12 Eu Tong Sen Street #08-169, Singapore 059819',
 };
 
-export const UPDATED = { Privacy: '24 November 2026', Cookies: '23 October 2026' };
+export const UPDATED = { Privacy: '24 November 2026', Cookies: '23 October 2026', Terms: '24 November 2026' };
 
 export const PRIVACY = [
   {
@@ -111,5 +111,69 @@ export const COOKIES = [
       'Signing out clears both. You can also clear them in your browser settings, which signs you out.',
       'If you block them, the site will not be able to keep you signed in.',
     ],
+  },
+];
+
+export const TERMS = [
+  {
+    heading: 'Who runs this service',
+    body: [
+      `${CONTROLLER.name} runs visdom.dev from Singapore. These terms apply when you use the hosted service to record and share experiments.`,
+    ],
+  },
+  {
+    heading: 'Your account and workspaces',
+    body: [
+      'Keep your password and API keys private. When you invite someone to a workspace, choose a role that gives them only the access they need. You can revoke API keys from your dashboard.',
+    ],
+  },
+  {
+    heading: 'Acceptable use',
+    body: [
+      'Only upload material you have the right to use and share. Respect the limits of your plan. Do not try to enter someone else’s workspace without permission or disrupt the service for other people.',
+    ],
+  },
+  {
+    heading: 'Your data stays yours',
+    body: [
+      'You keep ownership of the plots, values and text you send. We store and display them so you and the people with access to your workspace can use them.',
+    ],
+  },
+  {
+    heading: 'Plans and payment',
+    body: [
+      'Your plan sets limits on workspaces, members, API keys and storage. You can see the available plans and their prices in the Billing tab. Stripe handles payments for paid subscriptions and receives the payment details you enter.',
+    ],
+  },
+  {
+    heading: 'Cancelling and refunds',
+    body: [
+      'To stop a paid subscription from renewing, open the Billing tab and choose Manage billing. When cancellation is scheduled, the dashboard shows when the plan ends.',
+      'If you have a question about a charge or want to request a refund, use the contact form and choose Billing.',
+    ],
+  },
+  {
+    heading: 'How long plots are kept',
+    body: [
+      'Each workspace follows its owner’s plan. The retention period starts with the last write to an environment. Once that period has passed, the service may remove the environment and its plots.',
+    ],
+  },
+  {
+    heading: 'Availability and liability',
+    body: [
+      'The service is under development. Features may change and the service may stop. Keep a copy of experiment data you need.',
+      'To the extent the law allows, FOSSASIA is not liable for losses caused by interruptions to the service or loss of stored data. Any rights that the law requires us to honour still apply.',
+    ],
+  },
+  {
+    heading: 'Governing law and changes to these terms',
+    body: [
+      'The law of Singapore governs these terms. We may update them as the service changes. The date at the top of this page shows when the wording last changed.',
+    ],
+  },
+  {
+    heading: 'Contact',
+    body: ['Use the contact form to ask us about these terms or your account.'],
+    contact: true,
   },
 ];
