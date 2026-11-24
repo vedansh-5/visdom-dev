@@ -206,6 +206,13 @@
 .st-demo-toolbar [role="status"] { color: #234f39; }
 .st-open { max-width: 62ch; padding-top: 0; text-align: center; }
 .st-open p { margin: 16px 0; }
+.st-open p a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  color: var(--st-accent-dark);
+  text-underline-offset: .16em;
+}
 .st-cta p { margin: 16px 0; max-width: 52ch; }
 .st-open-links { display: flex; justify-content: center; gap: 8px; flex-wrap: wrap; }
 .st-open-links .st-btn { font-size: 14px; }

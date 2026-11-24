@@ -57,7 +57,10 @@ const Start = () => {
 
         <section className="st-open st-inner" aria-labelledby="st-open-h">
           <h2 id="st-open-h">Built in the open</h2>
-          <p>Visdom is open source and run by FOSSASIA. Want your own server instead? Install Visdom with pip and run it on your machine, the same as always.</p>
+          <p>
+            Visdom is open source and run by <a href="https://fossasia.org" rel="noopener">FOSSASIA</a>.{' '}
+            Want your own server instead? Install Visdom with pip and run it on your machine, the same as always.
+          </p>
           <p>Everything behind visdom.dev is open source too.</p>
           <div className="st-open-links">
             <a href={GITHUB_VISDOM} className="st-btn st-btn-ink">fossasia/visdom</a>

@@ -6,6 +6,7 @@ import { useAuth } from '../context/AuthContext';
 import { CONTROLLER } from '../content/legal';
 import '../css/site.css';
 
+const fossasia = 'https://fossasia.org';
 const github = 'https://github.com/fossasia/visdom';
 
 function AccountLinks({ children, className }) {
@@ -95,8 +96,8 @@ function SiteFooter() {
         <section><h2>Contact</h2><Link to="/contact">Contact us</Link></section>
       </div>
       <div className="site-colophon">
-        <div>visdom.dev is run by {CONTROLLER.name}, Singapore.</div>
-        <Link to="/privacy">© {new Date().getFullYear()} FOSSASIA</Link>
+        <div>visdom.dev is run by <a href={fossasia} rel="noopener">{CONTROLLER.name}</a>, Singapore.</div>
+        <a href={fossasia} rel="noopener">© {new Date().getFullYear()} FOSSASIA</a>
       </div>
     </footer>
   );

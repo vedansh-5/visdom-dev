@@ -51,7 +51,10 @@ describe('Start page', () => {
     visit('/');
     const section = within(screen.getByRole('region', { name: 'Built in the open' }));
     expect(section.queryByRole('img')).toBeNull();
-    expect(section.getByText(/Visdom is open source and run by FOSSASIA/)).toBeVisible();
+    const operator = section.getByRole('link', { name: 'FOSSASIA' });
+    expect(operator).toHaveAttribute('href', 'https://fossasia.org');
+    expect(operator).toHaveAttribute('rel', 'noopener');
+    expect(operator.closest('p')).toHaveTextContent('Visdom is open source and run by FOSSASIA.');
     for (const project of ['fossasia/visdom', 'fossasia/visdom-dev']) {
       expect(section.getByRole('link', { name: project })).toHaveAttribute('href', `https://github.com/${project}`);
     }
