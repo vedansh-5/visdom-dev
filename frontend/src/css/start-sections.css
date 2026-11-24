@@ -62,7 +62,7 @@
   color: var(--pub-white);
   font: 700 13px/1 var(--pub-font);
 }
-.st-watchers i:nth-child(2) { background: var(--pub-orange); }
+.st-watchers i:nth-child(2) { background: var(--pub-cyan); }
 .st-watchers i:nth-child(3) { background: var(--pub-teal); }
 .st-page .st-code {
   max-width: 100%;
@@ -118,7 +118,7 @@
 }
 .st-status-running { background: var(--pub-mint); color: var(--pub-green); }
 .st-status-done { background: var(--pub-ice); color: var(--pub-blue-deep); }
-.st-status-stopped { background: var(--pub-blush); color: var(--pub-coral); }
+.st-status-stopped { background: var(--pub-red-tint); color: var(--pub-red); }
 .st-run-detail {
   min-width: 0;
   padding: clamp(16px, 2.4vw, 40px);
@@ -183,7 +183,7 @@
 .st-trials td { border-top: 1px solid var(--pub-rule); }
 .st-trials th[aria-sort] button { background: var(--pub-ice); }
 .st-demo-toolbar [role="status"] { color: var(--pub-green); }
-.st-open { background: var(--pub-sand); }
+.st-open { background: var(--pub-ice); }
 .st-open p, .st-cta p { margin-top: 12px; max-width: 54ch; }
 .st-open a { display: inline-flex; align-items: center; min-height: 44px; color: var(--pub-blue-deep); text-underline-offset: .16em; }
 .st-open-links { display: flex; flex-wrap: wrap; gap: 0 20px; font-weight: 650; }
