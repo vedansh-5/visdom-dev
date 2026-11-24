@@ -164,6 +164,7 @@
   cursor: pointer;
 }
 .st-frag :is(button, select):hover, .st-install button:hover { background: var(--pub-ice); }
+.st-frag select { height: max(44px, 2.75em); }
 .st-demo-list li, .st-demo-toolbar {
   display: flex;
   flex-wrap: wrap;
