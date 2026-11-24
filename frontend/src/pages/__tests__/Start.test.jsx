@@ -38,6 +38,15 @@ describe('Start page', () => {
     }
   });
 
+  it('shows one Visdom logo and links it home from the header', () => {
+    visit('/');
+    const home = screen.getByRole('link', { name: 'Visdom home' });
+    const logos = document.querySelectorAll('img[src="/logo.svg"]');
+    expect(logos).toHaveLength(1);
+    expect(home).toContainElement(logos[0]);
+    expect(home).toHaveAttribute('href', '/');
+  });
+
   it('shows the same client snippet as the Keys tab', () => {
     visit('/');
 
