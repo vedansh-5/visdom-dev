@@ -1,6 +1,6 @@
 /* Copyright 2017-present, The Visdom Authors */
 import { useEffect, useRef } from 'react';
-import { Link, Outlet } from 'react-router-dom';
+import { Link, Outlet, useLocation } from 'react-router-dom';
 import { Menu, X } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { CONTROLLER } from '../content/legal';
@@ -16,13 +16,17 @@ function AccountLinks({ children, className }) {
 }
 
 function Navigation({ onNavigate }) {
+  const location = useLocation();
+  const legal = ['/privacy', '/cookies', '/terms'].includes(location.pathname);
+  const search = legal ? location.search : '';
+  const state = legal ? location.state : undefined;
   return (
     <nav aria-label="Main navigation" className="site-links" onClick={onNavigate}>
       <Link to="/pricing">Pricing</Link>
       <a href={github}>GitHub</a>
       <AccountLinks className="site-primary">
-        <Link to="/login">Sign in</Link>
-        <Link to="/register" className="site-primary">Get started</Link>
+        <Link to={`/login${search}`} state={state}>Sign in</Link>
+        <Link to={`/register${search}`} state={state} className="site-primary">Get started</Link>
       </AccountLinks>
     </nav>
   );
@@ -90,15 +94,16 @@ function SiteFooter() {
             <Link to="/login">Sign in</Link>
           </AccountLinks>
           <Link to="/pricing">Pricing</Link>
+          <Link to="/contact">Contact us</Link>
         </section>
         <section><h2>Open source</h2><a href={github}>fossasia/visdom</a><a href={github + '-dev'}>fossasia/visdom-dev</a></section>
         <section><h2>Legal</h2><Link to="/privacy">Privacy</Link><Link to="/cookies">Cookies</Link><Link to="/terms">Terms</Link></section>
-        <section><h2>Contact</h2><Link to="/contact">Contact us</Link></section>
       </div>
       <div className="site-colophon">
         <div>visdom.dev is run by <a href={fossasia} rel="noopener">{CONTROLLER.name}</a>, Singapore.</div>
         <a href={fossasia} rel="noopener">© {new Date().getFullYear()} FOSSASIA</a>
       </div>
+      <div className="site-wordmark" aria-hidden="true">visdom</div>
     </footer>
   );
 }

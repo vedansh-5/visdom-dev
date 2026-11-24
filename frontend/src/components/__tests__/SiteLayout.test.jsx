@@ -20,7 +20,9 @@ it('links home from the header and groups public destinations in the footer', ()
   for (const [name, path] of [['Pricing', '/pricing'], ['Privacy', '/privacy'], ['Terms', '/terms'], ['Contact us', '/contact']]) {
     expect(footer.getByRole('link', { name })).toHaveAttribute('href', path);
   }
-  expect(footer.queryByRole('link', { name: 'Wikimedia Commons' })).toBeNull();
+  expect(footer.getAllByRole('heading').map(heading => heading.textContent)).toEqual(['Product', 'Open source', 'Legal']);
+  expect(within(footer.getByRole('heading', { name: 'Product' }).parentElement).getByRole('link', { name: 'Contact us' })).toBeVisible();
+  expect(screen.getByRole('contentinfo').lastElementChild).toHaveTextContent('visdom');
   expect(screen.getByRole('contentinfo')).toHaveTextContent('visdom.dev is run by FOSSASIA PTE. LTD., Singapore.');
   for (const name of ['FOSSASIA PTE. LTD.', `© ${new Date().getFullYear()} FOSSASIA`]) {
     const link = footer.getByRole('link', { name });

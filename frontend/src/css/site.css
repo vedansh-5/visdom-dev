@@ -1,8 +1,10 @@
 /* Copyright 2017-present, The Visdom Authors */
 .site-layout {
   --site-gutter: clamp(16px, 5vw, 88px);
-  background: #fff;
-  color: #182333;
+  font-family: var(--pub-font);
+  --font-sans: var(--pub-font);
+  background: var(--pub-paper);
+  color: var(--pub-ink);
   min-height: 100vh;
 }
 .site-header {
@@ -11,8 +13,8 @@
   align-items: center;
   justify-content: space-between;
   padding: 0 var(--site-gutter);
-  background: #fff;
-  border-bottom: 1px solid #cdd6e0;
+  background: var(--pub-white);
+  border-bottom: 1px solid var(--pub-rule);
   position: relative;
   z-index: 5;
 }
@@ -30,48 +32,111 @@
 .site-links { display: flex; align-items: center; gap: clamp(12px, 2vw, 32px); }
 .site-links a, .site-menu { font-size: 14px; font-weight: 600; }
 .site-links a:hover, .site-footer a:hover { text-decoration: underline; }
-.site-links .site-primary { padding: 0 17px; background: #3b5998; color: #fff; border-radius: 4px; }
+.site-links .site-primary { padding: 0 17px; background: var(--pub-blue); color: var(--pub-white); border-radius: 4px; }
 .site-menu {
   display: none;
   gap: 8px;
   cursor: pointer;
-  background: white;
-  border: 1px solid #d0d8e1;
+  background: var(--pub-white);
+  border: 1px solid var(--pub-rule);
   border-radius: 4px;
   padding: 0 12px;
 }
-.site-header dialog { inset: 6px var(--site-gutter) auto auto; padding: 0; margin: 0; border: 1px solid #cdd6e0; border-radius: 6px; width: min(320px, calc(100% - 32px)); color: inherit; }
-.site-header dialog::backdrop { background: rgb(17 28 46 / .4); }
+.site-header dialog { inset: 6px var(--site-gutter) auto auto; padding: 0; margin: 0; border: 1px solid var(--pub-rule); border-radius: 6px; width: min(320px, calc(100% - 32px)); color: inherit; }
+.site-header dialog::backdrop { background: color-mix(in srgb, var(--pub-night) 45%, transparent); }
 .site-menu-inner { padding: 12px; display: grid; justify-items: end; gap: 8px; }
 .site-menu-inner nav { display: grid; gap: 2px; width: 100%; }
 .site-menu-inner a { padding: 0 16px; }
-.site-footer { background: #172234; color: #f3f6fa; padding: 40px var(--site-gutter) 16px; }
-.site-footer-links, .site-colophon { max-width: 1440px; margin-inline: auto; }
-.site-footer-links { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; padding-bottom: 24px; }
-.site-footer h2 { margin: 0 0 7px; color: #adc5e8; font-size: 13px; }
+.site-layout :is(input, button, textarea, select) { font-family: inherit; }
+.site-layout:has(.site-sticky) :is(a, button, select, [tabindex]) { scroll-margin-block: 72px 12px; }
+.site-links .site-primary:hover { background: var(--pub-blue-deep); }
+.site-footer {
+  container-type: inline-size;
+  padding: clamp(32px, 4vw, 72px) var(--site-gutter) 0;
+  background: var(--pub-night);
+  color: var(--pub-light-ink);
+}
+.site-footer-links {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: clamp(6px, 2vw, 36px);
+  padding-bottom: 24px;
+}
+.site-footer h2 { margin: 0 0 7px; color: var(--pub-light-muted); font-size: 15px; }
 .site-footer section { display: flex; flex-direction: column; align-items: flex-start; min-width: 0; }
-.site-footer a { font-size: 14px; }
-.site-colophon { display: flex; align-items: center; flex-wrap: wrap; gap: 0 16px; }
-.site-colophon { border-top: 1px solid #425268; padding-top: 12px; justify-content: space-between; font-size: 14px; }
+.site-footer a { max-width: 100%; font-size: 14px; overflow-wrap: anywhere; }
+.site-colophon {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0 16px;
+  border-top: 1px solid var(--pub-control-border);
+  padding-block: 12px;
+  font-size: 14px;
+}
 .site-colophon a { text-decoration: underline; text-underline-offset: 3px; }
-.site-layout :focus-visible { outline: 3px solid #1a6fb0; outline-offset: 2px; }
-.site-footer :focus-visible { outline-color: #a1d7ff; }
-.site-layout :is(.auth-wrapper, .gc-legal-wrapper) { min-height: calc(100svh - 60px); }
+.site-wordmark {
+  font-size: 32cqw;
+  font-weight: 700;
+  line-height: .92;
+  letter-spacing: -.065em;
+  text-align: center;
+  color: var(--pub-light-muted);
+}
+.site-layout :focus-visible { outline: 3px solid var(--pub-blue); outline-offset: 2px; }
+.site-footer :focus-visible { outline-color: var(--pub-mint); }
+.site-layout .auth-wrapper {
+  min-height: calc(100svh - 60px);
+  padding: clamp(20px, 4vw, 64px) var(--site-gutter);
+  background: var(--pub-ice);
+}
+.site-layout .auth-panel {
+  --text-primary: var(--pub-ink);
+  --text-secondary: var(--pub-muted);
+  --text-muted: var(--pub-muted);
+  --vc-text-muted: var(--pub-muted);
+  --danger-bg: var(--pub-coral);
+  --success-bg: var(--pub-green);
+  --btn-border: var(--pub-control-border);
+  --panel-border: var(--pub-rule);
+  --panel-bg: var(--pub-white);
+  min-width: 0;
+  box-shadow: none;
+}
 .site-layout .auth-panel :is(input, button, a), .site-layout .gc-legal a { min-height: 44px; min-width: 44px; }
 .site-layout :is(.auth-panel, .gc-legal) a { display: inline-flex; align-items: center; }
-.site-layout .auth-panel {
-  --text-muted: #596675;
-  --vc-text-muted: #596675;
-  --danger-bg: #aa3131;
-  --success-bg: #246639;
-}
-.auth-title { margin: 0; color: var(--text-muted); font-size: 15px; font-weight: 600; }
+.site-layout .auth-panel .visdom-logo { color: var(--pub-blue); }
 .site-layout .pw-field-input { padding-right: 52px; }
 .site-layout .pw-field-toggle { width: 44px; }
+.auth-title { margin: 0; color: var(--pub-ink); font-size: clamp(19px, 2vw, 24px); line-height: 1.2; }
+
+.site-layout .gc-legal-wrapper {
+  min-height: calc(100svh - 60px);
+  padding: clamp(36px, 5vw, 88px) var(--site-gutter);
+  background: var(--pub-paper);
+}
+.site-layout .gc-legal {
+  max-width: 70ch;
+  padding: 0;
+  margin: 0 auto;
+  border: 0;
+  box-shadow: none;
+  background: transparent;
+  color: var(--pub-ink);
+  font-size: clamp(16px, 1.1vw, 18px);
+  overflow-wrap: anywhere;
+}
+.site-layout .gc-legal-title { margin: 0; color: inherit; font-size: clamp(38px, 5vw, 72px); line-height: 1.05; letter-spacing: -.045em; }
+.site-layout .gc-legal-updated { margin: 14px 0 36px; padding-bottom: 24px; border-bottom: 1px solid var(--pub-rule); color: var(--pub-muted); font-size: 14px; }
+.site-layout .gc-legal-heading { margin: 32px 0 10px; color: inherit; font-size: clamp(20px, 2vw, 27px); line-height: 1.17; letter-spacing: -.025em; }
+.site-layout .gc-legal-text { margin: 12px 0; color: inherit; font-size: inherit; line-height: 1.58; }
+.site-layout .gc-legal a { color: var(--pub-blue); text-decoration: underline; text-underline-offset: .16em; }
+
 @media (max-width: 767px) {
   .site-header > nav { display: none; }
   .site-menu { display: inline-flex; }
-  .site-footer-links { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px 8px; }
+  .site-footer-links { grid-template-columns: minmax(0, .88fr) minmax(0, 1.35fr) minmax(0, .71fr); }
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }

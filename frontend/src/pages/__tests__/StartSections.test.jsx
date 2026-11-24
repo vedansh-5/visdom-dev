@@ -16,6 +16,11 @@ afterEach(() => {
 const sectionStyles = readFileSync('src/css/start-sections.css', 'utf8');
 const visit = () => render(<MemoryRouter><Start /></MemoryRouter>);
 const panel = name => within(screen.getByRole('region', { name }));
+const openDemo = name => {
+  const summary = screen.getByText(name, { selector: 'summary' });
+  fireEvent.click(summary);
+  return within(summary.closest('details'));
+};
 
 it('keeps all nine runs reachable and displays the selected run metrics and chart', () => {
   visit();
@@ -28,6 +33,7 @@ it('keeps all nine runs reachable and displays the selected run metrics and char
   expect(detail.getByText('0.402')).toBeVisible();
   expect(detail.getByText('Raj')).toBeVisible();
   expect(detail.getByText('Done')).toBeVisible();
+  expect(detail.getByText('Done')).toHaveClass('st-status-done');
   expect(detail.getByRole('slider')).toBeVisible();
   fireEvent.keyDown(buttons[8], { key: 'ArrowUp' });
   expect(buttons[7]).toHaveFocus();
@@ -70,12 +76,12 @@ it('changes a role and supports undo for keys and join requests', () => {
   const role = screen.getByRole('combobox', { name: 'Role for raj@fossasia.org' });
   fireEvent.change(role, { target: { value: 'Viewer' } });
   expect(role).toHaveValue('Viewer');
-  const key = within(panel('Scoped API keys').getByText('lab-gpu-01').closest('li'));
+  const key = within(openDemo('Scoped API keys').getByText('lab-gpu-01').closest('li'));
   fireEvent.click(key.getByRole('button', { name: 'Revoke' }));
   expect(key.getByText('Revoked')).toBeVisible();
   fireEvent.click(key.getByRole('button', { name: 'Undo' }));
   expect(key.getByRole('button', { name: 'Revoke' })).toBeVisible();
-  const request = within(screen.getByText('priya@fossasia.org').closest('li'));
+  const request = within(openDemo('Join links').getByText('priya@fossasia.org').closest('li'));
   for (const [action, result] of [['Approve', 'Approved'], ['Decline', 'Declined']]) {
     fireEvent.click(request.getByRole('button', { name: action }));
     expect(request.getByText(result)).toBeVisible();
@@ -85,14 +91,14 @@ it('changes a role and supports undo for keys and join requests', () => {
 
 it('sorts numeric trials in both directions and copies the displayed Python', async () => {
   visit();
-  const sweeps = panel('Experiments and sweeps');
+  const sweeps = openDemo('Experiments and sweeps');
   const sort = sweeps.getByRole('button', { name: 'Accuracy' });
   fireEvent.click(sort);
   expect(sweeps.getAllByRole('row')[1]).toHaveTextContent('0.871');
   fireEvent.click(sort);
   expect(sweeps.getAllByRole('row')[1]).toHaveTextContent('0.902');
   expect(sort.closest('th')).toHaveAttribute('aria-sort', 'descending');
-  const client = panel('The client you already use');
+  const client = openDemo('The client you already use');
   copyToClipboard.mockResolvedValue(true);
   fireEvent.click(client.getByRole('button', { name: 'Copy' }));
   expect(copyToClipboard).toHaveBeenCalledWith(client.getByText(/vis.images\(batch/).textContent);
@@ -127,15 +133,80 @@ it('wraps long example lines while preserving Python indentation for copying', (
   expect(screen.getByLabelText('Python plotting example').textContent).toContain('\n         win=');
 });
 
-it('keeps each feature preview directly below its description', () => {
+it('keeps two featured demos visible and four further demos in a compact list', () => {
   visit();
-  render(<style>{sectionStyles}</style>);
-  const cards = panel('What you get').getAllByRole('region');
-  expect(cards).toHaveLength(6);
-  for (const card of cards) {
-    const description = card.querySelector('p');
-    const preview = description.nextElementSibling;
-    expect(preview).toHaveClass('st-frag');
-    expect(getComputedStyle(preview).marginTop).not.toBe('auto');
+  const features = screen.getByRole('region', { name: 'What you get' });
+  expect(within(features).getAllByRole('region')).toHaveLength(2);
+  expect(features.querySelectorAll('details:not([open])')).toHaveLength(4);
+  expect(openDemo('Scoped API keys').getAllByRole('button', { name: 'Revoke' })).toHaveLength(2);
+});
+
+it('keeps the four steps compact and the full working script just below them', () => {
+  visit();
+  const steps = screen.getByRole('region', { name: 'From sign-up to first plot' });
+  const list = within(steps).getByRole('list');
+  expect(within(list).getAllByRole('listitem')).toHaveLength(4);
+  expect(list).not.toContainElement(screen.getByLabelText('Connect your script to Visdom'));
+  const example = within(steps).getByText('Show the complete Python example', { selector: 'summary' });
+  fireEvent.click(example);
+  expect(example.closest('details')).toHaveAttribute('open');
+  expect(example.closest('details')).toContainElement(screen.getByLabelText('Connect your script to Visdom'));
+});
+
+it('copies the self-hosted install command and explains how to copy it manually on failure', async () => {
+  visit();
+  const section = panel('Built in the open');
+  const copy = section.getByRole('button', { name: 'Copy install command' });
+  const command = section.getByText('pip install visdom');
+  copyToClipboard.mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+  fireEvent.click(copy);
+  expect(await section.findByText('Select the command to copy it.')).toBeVisible();
+  fireEvent.click(copy);
+  expect(await section.findByText('Copied')).toBeVisible();
+  expect(copyToClipboard).toHaveBeenLastCalledWith(command.textContent);
+});
+
+it('reveals the closing chart once, after it enters a visible tab', () => {
+  let trigger;
+  const targets = new Set();
+  vi.stubGlobal('IntersectionObserver', class {
+    constructor(notify) { this.notify = notify; }
+    observe(element) {
+      if (element.matches('.st-first-plot')) {
+        trigger = () => this.notify([{ target: element, isIntersecting: true }]);
+        targets.add(element);
+      }
+    }
+    unobserve(element) { targets.delete(element); }
+    disconnect() { targets.clear(); }
+  });
+  visit();
+  const figure = screen.getByText('Step 3').closest('figure');
+  expect(targets.has(figure)).toBe(true);
+  const hidden = vi.spyOn(document, 'hidden', 'get').mockReturnValue(true);
+  try {
+    fireEvent(document, new Event('visibilitychange'));
+    act(() => trigger());
+    expect(figure).not.toHaveClass('st-entered');
+    hidden.mockReturnValue(false);
+    fireEvent(document, new Event('visibilitychange'));
+    act(() => trigger());
+    expect(figure).toHaveClass('st-entered');
+    expect(targets.has(figure)).toBe(false);
+    figure.classList.remove('st-entered');
+    act(() => trigger());
+    expect(figure).not.toHaveClass('st-entered');
+  } finally {
+    hidden.mockRestore();
   }
+});
+
+it('leaves the finished chart visible with reduced motion or without an observer', () => {
+  vi.stubGlobal('matchMedia', () => ({ matches: true, addEventListener() {}, removeEventListener() {} }));
+  vi.stubGlobal('IntersectionObserver', undefined);
+  visit();
+  const figure = screen.getByText('Step 3').closest('figure');
+  expect(figure).toBeVisible();
+  expect(figure).not.toHaveClass('st-entered');
+  expect(figure.querySelector('polyline')).toBeInTheDocument();
 });

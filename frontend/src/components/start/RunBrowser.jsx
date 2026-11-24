@@ -34,7 +34,10 @@ const RunDetails = ({ run }) => {
       <h3 id="st-run-name">{run.name}</h3>
       <dl className="st-run-metrics">
         {Object.entries({ Epoch: epoch, Loss: loss, Owner: run.owner, Status: run.status }).map(([label, value]) => (
-          <div key={label}><dt>{label}</dt><dd>{value}</dd></div>
+          <div key={label}>
+            <dt>{label}</dt>
+            <dd className={label === 'Status' ? `st-status st-status-${value.toLowerCase()}` : undefined}>{value}</dd>
+          </div>
         ))}
       </dl>
       <div className="st-preview-plot">
@@ -81,8 +84,8 @@ export default function RunBrowser() {
   return (
     <section className="st-board" aria-labelledby="st-runs">
       <div className="st-inner">
-        <h2 id="st-runs">Every run, as it happens</h2>
-        <div className="st-run-browser">
+        <h2 data-reveal id="st-runs">Every run, as it happens</h2>
+        <div data-reveal className="st-run-browser">
           <ul className="st-runs" aria-label="Example runs">
             {RUNS.map((run, i) => (
               <li key={run.name}>

@@ -1,34 +1,13 @@
 /* Copyright 2017-present, The Visdom Authors */
+@import "./public-theme.css";
 
 .st-page {
-  --st-ground: #e9edf2;
-  --st-tile: #ffffff;
-  --st-tile-2: #f6f8fa;
-  --st-ink: #212529;
-  --st-ink-soft: #5b636b;
-  --st-navy: #3b5998;
-  --st-navy-dark: #2f477a;
-  --st-accent: #1a6fb0;
-  --st-accent-dark: #155a91;
-  --st-accent-soft: #dcebf8;
-  --st-slate: #56688a;
-  --st-night: #141a24;
-  --st-night-row: #1f2835;
-  --st-ok: #1e7e34;
-  --st-bad: #c9302c;
-  --st-gap: 8px;
-  --st-edge: 20px;
-  --st-r: 6px;
-  --st-s-1: 13px;
-  --st-s-2: 17px;
-  --st-s-3: 26px;
-  --st-s-4: clamp(32px, 3.2vw, 44px);
   min-height: 100vh;
   overflow-x: hidden;
-  background: var(--st-ground);
-  color: var(--st-ink);
-  font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
-  font-size: var(--st-s-2);
+  background: var(--pub-paper);
+  color: var(--pub-ink);
+  font-family: var(--pub-font);
+  font-size: 17px;
   line-height: 1.5;
 }
 
@@ -53,7 +32,7 @@
 }
 
 .st-page :focus-visible {
-  outline: 3px solid var(--st-accent);
+  outline: 3px solid var(--pub-blue);
   outline-offset: 2px;
 }
 
@@ -63,36 +42,19 @@
   justify-content: center;
   min-height: 44px;
   padding: 0 22px;
-  border-radius: var(--st-r);
-  background: var(--st-accent);
-  color: #ffffff !important;
+  border-radius: 6px;
+  background: var(--pub-blue);
+  color: var(--pub-white) !important;
   font-weight: 700;
-  font-size: var(--st-s-2);
+  font-size: 17px;
   text-decoration: none;
   transition: background-color 0.15s, transform 0.15s;
 }
 
 .st-btn:hover {
-  background: var(--st-accent-dark);
+  background: var(--pub-blue-deep);
 }
 
 .st-btn:active {
   transform: translateY(1px);
-}
-
-.st-btn-light {
-  background: #ffffff;
-  color: var(--st-ink) !important;
-}
-
-.st-btn-light:hover {
-  background: var(--st-accent-soft);
-}
-
-.st-btn-ink {
-  background: var(--st-ink);
-}
-
-.st-btn-ink:hover {
-  background: #000000;
 }

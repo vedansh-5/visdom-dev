@@ -148,7 +148,7 @@ fetchSuggestion();
 
         {error && (
           <div style={{
-            background: 'rgba(217, 83, 79, 0.1)',
+            background: 'var(--pub-blush)',
             border: '1px solid var(--danger-bg)',
             borderRadius: '2px',
             padding: '10px',
@@ -162,7 +162,7 @@ fetchSuggestion();
 
         {success && (
           <div style={{
-            background: 'rgba(92, 184, 92, 0.1)',
+            background: 'var(--pub-mint)',
             border: '1px solid var(--success-bg)',
             borderRadius: '2px',
             padding: '10px',
@@ -176,7 +176,7 @@ fetchSuggestion();
 
         <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
           <div>
-            <label htmlFor="register-email" style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: 'var(--text-secondary)', marginBottom: '6px' }}>
+            <label htmlFor="register-email" style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: 'var(--text-secondary)', marginBottom: '6px' }}>
               Email Address
             </label>
             <input
@@ -193,7 +193,7 @@ fetchSuggestion();
           </div>
 
           <div>
-            <label htmlFor="register-username" style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: 'var(--text-secondary)', marginBottom: '6px' }}>
+            <label htmlFor="register-username" style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: 'var(--text-secondary)', marginBottom: '6px' }}>
               Username
             </label>
 
@@ -205,9 +205,9 @@ fetchSuggestion();
                 className="visdom-btn"
                 style={{
                   flex: 1,
-                  backgroundColor: usernameMode === 'auto' ? '#3b5998' : undefined,
-                  color: usernameMode === 'auto' ? '#ffffff' : undefined,
-                  borderColor: usernameMode === 'auto' ? '#2f477a' : undefined,
+                  backgroundColor: usernameMode === 'auto' ? 'var(--pub-blue)' : undefined,
+                  color: usernameMode === 'auto' ? 'var(--pub-white)' : undefined,
+                  borderColor: usernameMode === 'auto' ? 'var(--pub-blue-deep)' : undefined,
                 }}
               >
                 Auto-generate
@@ -219,9 +219,9 @@ fetchSuggestion();
                 className="visdom-btn"
                 style={{
                   flex: 1,
-                  backgroundColor: usernameMode === 'custom' ? '#3b5998' : undefined,
-                  color: usernameMode === 'custom' ? '#ffffff' : undefined,
-                  borderColor: usernameMode === 'custom' ? '#2f477a' : undefined,
+                  backgroundColor: usernameMode === 'custom' ? 'var(--pub-blue)' : undefined,
+                  color: usernameMode === 'custom' ? 'var(--pub-white)' : undefined,
+                  borderColor: usernameMode === 'custom' ? 'var(--pub-blue-deep)' : undefined,
                 }}
               >
                 Choose my own
@@ -237,9 +237,9 @@ fetchSuggestion();
                     flex: 1,
                     display: 'flex',
                     alignItems: 'center',
-                    fontFamily: 'monospace',
+                    fontFamily: 'inherit',
                     color: 'var(--text-primary)',
-                    background: '#f5f5f5',
+                    background: 'var(--pub-paper)',
                   }}
                 >
                   {autoUsernameLoading ? 'Generating...' : autoUsername}
@@ -267,7 +267,7 @@ fetchSuggestion();
                   spellCheck={false}
                 />
                 {customUsername && (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginTop: '6px', fontSize: '12px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginTop: '6px', fontSize: '13px' }}>
                     {!USERNAME_PATTERN.test(customUsername) ? (
                       <span style={{ color: 'var(--danger-bg)' }}>
                         3-30 characters: letters, numbers, underscores, hyphens.
@@ -290,7 +290,7 @@ fetchSuggestion();
           </div>
 
           <div>
-            <label htmlFor="register-password" style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: 'var(--text-secondary)', marginBottom: '6px' }}>
+            <label htmlFor="register-password" style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: 'var(--text-secondary)', marginBottom: '6px' }}>
               Password
             </label>
             <PasswordInput
@@ -304,7 +304,7 @@ fetchSuggestion();
           </div>
 
           <div>
-            <label htmlFor="register-confirm" style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: 'var(--text-secondary)', marginBottom: '6px' }}>
+            <label htmlFor="register-confirm" style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: 'var(--text-secondary)', marginBottom: '6px' }}>
               Confirm Password
             </label>
             <PasswordInput
@@ -320,9 +320,9 @@ fetchSuggestion();
           <button type="submit" disabled={submitting || !usernameReady} className="visdom-btn" style={{
             width: '100%',
             height: '32px',
-            backgroundColor: '#3b5998',
-            color: '#ffffff',
-            borderColor: '#2f477a',
+            backgroundColor: 'var(--pub-blue)',
+            color: 'var(--pub-white)',
+            borderColor: 'var(--pub-blue-deep)',
             marginTop: '6px'
           }}>
             {submitting ? 'Creating account...' : 'Create Account'}
@@ -331,12 +331,12 @@ fetchSuggestion();
 
         <div style={{ textAlign: 'center', marginTop: '20px', fontSize: '13px', color: 'var(--text-muted)' }}>
           Already have an account?{' '}
-          <Link to={`/login${location.search}`} state={{ from: location.state?.from }} style={{ color: '#3b5998', textDecoration: 'none', fontWeight: '600' }}>
+          <Link to={`/login${location.search}`} state={{ from: location.state?.from }} style={{ color: 'var(--pub-blue)', textDecoration: 'none', fontWeight: '600' }}>
             Sign in
           </Link>
         </div>
 
-        <div style={{ textAlign: 'center', marginTop: '16px', fontSize: '12px', color: 'var(--text-muted)' }}>
+        <div style={{ textAlign: 'center', marginTop: '16px', fontSize: '13px', color: 'var(--text-muted)' }}>
           <Link to={`/privacy${location.search}`} state={{ from: location.state?.from }} style={{ color: 'var(--text-muted)' }}>Privacy</Link>
           {' · '}
           <Link to={`/terms${location.search}`} state={{ from: location.state?.from }} style={{ color: 'var(--text-muted)' }}>Terms</Link>

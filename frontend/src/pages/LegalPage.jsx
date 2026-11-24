@@ -1,23 +1,16 @@
 /* Copyright 2017-present, The Visdom Authors */
 import { Link, useLocation } from 'react-router-dom';
-import { useAuth } from '../context/AuthContext';
 import { UPDATED } from '../content/legal';
 import usePageTitle from '../hooks/usePageTitle';
 
 const LegalPage = ({ title, sections }) => {
   usePageTitle(title);
   const location = useLocation();
-  const { user, loading } = useAuth();
   const kept = { from: location.state?.from };
 
   return (
-    <div className="gc-legal-wrapper">
+    <main className="gc-legal-wrapper">
       <article className="gc-legal">
-        {!loading && (
-          <Link to={user ? '/' : `/login${location.search}`} state={user ? undefined : kept} className="gc-legal-back">
-            {user ? 'Open dashboard' : 'Back to sign in'}
-          </Link>
-        )}
         <h1 className="gc-legal-title">{title}</h1>
         <p className="gc-legal-updated">Last updated {UPDATED[title]}</p>
         {sections.map((section) => (
@@ -35,7 +28,7 @@ const LegalPage = ({ title, sections }) => {
           <Link to={`/cookies${location.search}`} state={kept}>Cookies</Link>
         </p>
       </article>
-    </div>
+    </main>
   );
 };
 

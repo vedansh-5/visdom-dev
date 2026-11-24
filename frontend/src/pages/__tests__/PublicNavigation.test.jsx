@@ -40,14 +40,15 @@ it('names the password and account fields on sign-in and registration', async ()
 });
 
 it.each([
-  [null, 'Back to sign in', '/login?plan=pro'],
+  [null, 'Sign in', '/login?plan=pro'],
   [{ id: 1 }, 'Open dashboard', '/'],
-])('returns from Privacy to the right destination', async (account, label, path) => {
+])('returns from Privacy through the header and keeps the sign-in destination', async (account, label, path) => {
   session.user = account;
   window.history.replaceState({ usr: { from: '/share/join' } }, '', '/privacy?plan=pro');
   render(<App />);
   const article = within(screen.getByRole('article'));
-  const link = article.getByRole('link', { name: label });
+  expect(article.queryByRole('link', { name: /back to sign in|open dashboard/i })).toBeNull();
+  const link = within(screen.getByRole('banner')).getByRole('link', { name: label });
   expect(link).toHaveAttribute('href', path);
   if (!account) {
     await userEvent.click(link);

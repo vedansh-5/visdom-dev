@@ -17,7 +17,7 @@ const heatCells = (title, seed) => Array.from({ length: 64 }, (_, i) => {
   let axes = `query token ${row} · key token ${col}`;
   if (title === 'Confusion matrix') axes = `true ${row} · predicted ${col}`;
   if (title === 'Class predictions') axes = `class ${row} · predicted ${col}`;
-  return { colour: `rgba(24, 88, 148, ${value})`, readout: `${axes} · ${value}` };
+  return { intensity: value, readout: `${axes} · ${value}` };
 });
 
 const digitCells = seed => Array.from({ length: 6 }, (_, i) => {
@@ -87,7 +87,7 @@ const TilePane = memo(function TilePane({ type, title, seed }) {
             <path d={cell.path} fill="none" stroke="currentColor" strokeWidth="2.8" strokeLinecap="round"
               strokeLinejoin="round" transform={`rotate(${(seed + i) % 5 * 4 - 8} 13 13)`} />
           </svg>
-        ) : <i key={i} {...props} style={{ backgroundColor: cell.colour }} />;
+        ) : <i key={i} {...props} style={{ '--st-intensity': cell.intensity }} />;
       })}
       {selected !== null && <span className="st-readout" aria-hidden="true"
         style={index >= cells.length / 2 ? { top: 4, bottom: 'auto' } : undefined}>{cells[selected].readout}</span>}
