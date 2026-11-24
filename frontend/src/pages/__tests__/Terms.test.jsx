@@ -14,7 +14,9 @@ describe('Terms', () => {
   it('opens publicly and gives visitors a contact link in the terms', () => {
     window.history.replaceState({}, '', '/terms');
     render(<App />);
-    const terms = within(screen.getByRole('article'));
+    const main = within(screen.getByRole('main'));
+    const terms = within(main.getByRole('article'));
+    expect(terms.queryByRole('link', { name: 'Back to sign in' })).toBeNull();
     expect(terms.getByRole('heading', { level: 1, name: /terms/i })).toBeVisible();
     expect(terms.getByText(CONTROLLER.name, { exact: false })).toBeVisible();
     expect(terms.getByRole('link', { name: 'Contact us' })).toHaveAttribute('href', '/contact');
@@ -32,5 +34,7 @@ describe('Terms', () => {
     await userEvent.click(terms);
     expect(window.location.pathname).toBe('/terms');
     expect(screen.getByRole('heading', { level: 1, name: /terms/i })).toBeVisible();
+    const header = within(screen.getByRole('banner'));
+    expect(header.getByRole('link', { name: 'Get started' })).toHaveAttribute('href', '/register?plan=group');
   });
 });
