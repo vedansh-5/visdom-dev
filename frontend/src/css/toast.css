@@ -104,8 +104,7 @@
   left: 0;
   height: 3px;
   width: 100%;
-  background: currentColor;
-  opacity: 0.7;
+  background: rgba(255, 255, 255, 0.7);
   transform-origin: left;
   animation: visdom-toast-progress-shrink linear forwards;
 }
@@ -120,29 +119,25 @@
 }
 
 .visdom-toast-pill.visdom-toast-success {
-  background-color: var(--pub-mint, #fff);
-  color: var(--pub-green, #2a2a2a);
-  border: 1px solid var(--pub-green, #e0e0e0);
+  background-color: #fff;
+  color: #2a2a2a;
+  border: 1px solid #e0e0e0;
 }
 
 .visdom-toast-info {
-  background-color: var(--pub-ice, #337ab7);
-  color: var(--pub-blue, #fff);
+  background-color: #337ab7;
 }
 
 .visdom-toast-success {
-  background-color: var(--pub-mint, #5cb85c);
-  color: var(--pub-green, #fff);
+  background-color: #5cb85c;
 }
 
 .visdom-toast-warning {
-  background-color: var(--pub-paper, #f0ad4e);
-  color: var(--pub-raspberry, #fff);
+  background-color: #f0ad4e;
 }
 
 .visdom-toast-error {
-  background-color: var(--pub-red-tint, #d9534f);
-  color: var(--pub-red, #fff);
+  background-color: #d9534f;
 }
 
 @keyframes visdom-toast-enter {
