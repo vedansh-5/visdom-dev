@@ -51,7 +51,6 @@
 .site-layout:has(.site-sticky) :is(a, button, select, [tabindex]) { scroll-margin-block: 72px 12px; }
 .site-links .site-primary:hover { background: var(--pub-blue-deep); }
 .site-footer {
-  container-type: inline-size;
   padding: clamp(32px, 4vw, 72px) var(--site-gutter) 0;
   background: var(--pub-night);
   color: var(--pub-light-ink);
@@ -77,12 +76,13 @@
 }
 .site-colophon a { text-decoration: underline; text-underline-offset: 3px; }
 .site-wordmark {
-  font-size: 32cqw;
+  display: block;
+  width: 100%;
+  height: auto;
+  fill: var(--pub-light-muted);
+  font-size: 224px;
   font-weight: 700;
-  line-height: .92;
   letter-spacing: -.065em;
-  text-align: center;
-  color: var(--pub-light-muted);
 }
 .site-layout :focus-visible { outline: 3px solid var(--pub-blue); outline-offset: 2px; }
 .site-footer :focus-visible { outline-color: var(--pub-mint); }
