@@ -1,0 +1,124 @@
+name: Sync with fossasia and deploy
+
+on:
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+    inputs:
+      deploy:
+        description: "Redeploy the test deployment after the sync"
+        type: boolean
+        default: true
+
+concurrency:
+  group: sync-and-deploy
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  UPSTREAM: fossasia/visdom-dev
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    outputs:
+      behind: ${{ steps.merge.outputs.behind }}
+      branch: ${{ steps.merge.outputs.branch }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          token: ${{ secrets.SYNC_TOKEN || secrets.GITHUB_TOKEN }}
+      - name: Merge fossasia main into a sync branch
+        id: merge
+        run: |
+          git config user.name "$GITHUB_ACTOR"
+          git config user.email "${GITHUB_ACTOR_ID}+${GITHUB_ACTOR}@users.noreply.github.com"
+          git remote add upstream "https://github.com/${UPSTREAM}.git"
+          git fetch --no-tags upstream main
+          behind=$(git rev-list --count HEAD..upstream/main)
+          echo "behind=$behind" >> "$GITHUB_OUTPUT"
+          if [ "$behind" = "0" ]; then
+            echo "The fork has everything on ${UPSTREAM} main. Nothing to merge." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          branch="sync/fossasia-$(date -u +%Y-%m-%d-%H%M)"
+          echo "branch=$branch" >> "$GITHUB_OUTPUT"
+          git checkout -b "$branch"
+          if ! git merge --no-ff --signoff -m "Merge fossasia main into the fork" upstream/main; then
+            {
+              echo "The merge of ${UPSTREAM} main has conflicts in:"
+              git diff --name-only --diff-filter=U | sed 's/^/- /'
+              echo
+              echo "Nothing was pushed and nothing was deployed. Merge by hand."
+            } >> "$GITHUB_STEP_SUMMARY"
+            git merge --abort
+            exit 1
+          fi
+          git push origin "$branch"
+          echo "Merged $behind new commit(s) from ${UPSTREAM} main into $branch." >> "$GITHUB_STEP_SUMMARY"
+
+  checks:
+    needs: sync
+    if: needs.sync.outputs.behind != '0'
+    uses: ./.github/workflows/ci.yml
+    with:
+      ref: ${{ needs.sync.outputs.branch }}
+
+  promote:
+    needs: [sync, checks]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          token: ${{ secrets.SYNC_TOKEN || secrets.GITHUB_TOKEN }}
+      - name: Move main to the checked merge
+        env:
+          BRANCH: ${{ needs.sync.outputs.branch }}
+        run: |
+          git push origin "origin/${BRANCH}:refs/heads/main"
+          git push origin --delete "$BRANCH"
+          echo "main is now at $(git rev-parse --short "origin/${BRANCH}")." >> "$GITHUB_STEP_SUMMARY"
+
+  deploy:
+    needs: [sync, promote]
+    if: >-
+      !cancelled() && needs.sync.result == 'success' && (
+        (github.event_name == 'schedule' && vars.DEPLOY_ENABLED == 'true' && needs.promote.result == 'success') ||
+        (github.event_name == 'workflow_dispatch' && inputs.deploy && (needs.promote.result == 'success' || needs.sync.outputs.behind == '0'))
+      )
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: test-deployment
+    steps:
+      - name: Pull and rebuild on the test deployment
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+          DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
+        run: |
+          if [ -z "$DEPLOY_HOST" ] || [ -z "$DEPLOY_USER" ] || [ -z "$DEPLOY_SSH_KEY" ] || [ -z "$DEPLOY_KNOWN_HOSTS" ] || [ -z "$DEPLOY_PATH" ]; then
+            echo "The deploy secrets or DEPLOY_PATH are not set, so nothing was deployed. See deploy/SYNC.md." >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/deploy_key ~/.ssh/known_hosts
+          ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            "$DEPLOY_USER@$DEPLOY_HOST" \
+            "cd '$DEPLOY_PATH' && git fetch origin && git merge --ff-only origin/main && docker compose build && docker compose up -d"
+          echo "Redeployed $DEPLOY_HOST from main." >> "$GITHUB_STEP_SUMMARY"
