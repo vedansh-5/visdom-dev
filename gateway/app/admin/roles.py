@@ -30,6 +30,7 @@ _SUPPORT_VISIBLE = {
     "Membership",
     "APIKey",
     "WorkspaceInvite",
+    "ContactMessage",
 }
 
 _VISIBLE = {
@@ -41,9 +42,9 @@ _VISIBLE = {
 
 _CHANGEABLE = {
     VIEWER: set(),
-    SUPPORT: {"APIKey", "User", "Workspace", "Membership"},
-    ADMIN: {"APIKey", "User", "Workspace", "Membership"},
-    SUPERADMIN: {"APIKey", "User", "Workspace", "Membership", "AdminUser", "Plan"},
+    SUPPORT: {"ContactMessage", "APIKey", "User", "Workspace", "Membership"},
+    ADMIN: {"ContactMessage", "APIKey", "User", "Workspace", "Membership"},
+    SUPERADMIN: {"ContactMessage", "APIKey", "User", "Workspace", "Membership", "AdminUser", "Plan"},
 }
 
 _REMOVABLE = {
@@ -61,6 +62,7 @@ _ADDABLE = {
 }
 
 _ENTITLEMENT_FIELDS = {
+    "ContactMessage": {"handled"},
     "APIKey": {"is_active"},
     "User": {"is_active", "tier"},
     "Workspace": {"is_active", "trashed_at"},
@@ -69,6 +71,7 @@ _ENTITLEMENT_FIELDS = {
 
 _EDITABLE_FIELDS = {
     SUPPORT: {
+        "ContactMessage": {"handled"},
         "APIKey": {"is_active"},
         "User": {"is_active"},
         "Workspace": {"is_active"},

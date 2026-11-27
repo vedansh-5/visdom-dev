@@ -36,9 +36,28 @@ describe('PasswordInput', () => {
     expect(toggle).toHaveAttribute('aria-pressed', 'true');
   });
 
-  it('stays out of the tab order so it cannot swallow the submit', () => {
-    render(<PasswordInput name="password" />);
-    expect(screen.getByRole('button')).toHaveAttribute('tabindex', '-1');
+  it('toggles from the keyboard and submits with Enter in the field', async () => {
+    const user = userEvent.setup();
+    const submit = vi.fn(event => event.preventDefault());
+    render(
+      <form onSubmit={submit}>
+        <PasswordInput name="password" />
+        <button type="submit">Sign in</button>
+      </form>
+    );
+
+    await user.tab();
+    expect(field()).toHaveFocus();
+    await user.tab();
+    expect(screen.getByRole('button', { name: 'Show password' })).toHaveFocus();
+    await user.keyboard('{Enter}');
+    expect(field()).toHaveAttribute('type', 'text');
+    await user.keyboard(' ');
+    expect(field()).toHaveAttribute('type', 'password');
+    expect(submit).not.toHaveBeenCalled();
+    await user.tab({ shift: true });
+    await user.keyboard('{Enter}');
+    expect(submit).toHaveBeenCalledTimes(1);
   });
 
   it('passes props through to the input', async () => {

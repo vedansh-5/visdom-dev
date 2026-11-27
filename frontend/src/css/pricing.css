@@ -1,0 +1,104 @@
+/* Copyright 2017-present, The Visdom Authors */
+
+.pricing-page {
+  background: var(--pub-paper);
+  color: var(--pub-ink);
+  font-family: var(--pub-font);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.pricing-content {
+  padding: clamp(2rem, 5vw, 5rem) var(--site-gutter);
+}
+
+.pricing-page :is(h1, h2, h3, p, ul, dl, dd) { margin: 0; }
+.pricing-page :is(h1, h2, h3) { line-height: 1.12; letter-spacing: -.035em; }
+.pricing-intro { margin-bottom: 2rem; }
+.pricing-intro h1 { font-size: clamp(2.8rem, 5vw, 4.5rem); }
+.pricing-intro p { margin-top: .75rem; color: var(--pub-muted); font-size: 1.1rem; }
+
+.pricing-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 15rem), 1fr));
+  gap: 1rem;
+}
+
+.pricing-card, .pricing-mobile-limits section, .pricing-notice {
+  padding: clamp(1.25rem, 2.5vw, 2rem);
+  background: var(--pub-white);
+  border: 1px solid var(--pub-rule);
+  border-radius: .4rem;
+}
+
+.pricing-card {
+  display: flex;
+  flex-direction: column;
+  border-top: .3rem solid var(--pub-blue);
+}
+
+.pricing-card[data-plan="pro"] {
+  background: var(--pub-ice);
+  border-color: var(--pub-blue);
+  box-shadow: inset 0 0 0 1px var(--pub-blue);
+}
+
+.pricing-card h2 { font-size: 1.3rem; color: var(--pub-ink); }
+.pricing-card .pricing-price {
+  margin-top: 1rem;
+  font-size: clamp(2rem, 3vw, 2.75rem);
+  font-weight: 650;
+  letter-spacing: -.045em;
+  line-height: 1.1;
+}
+
+.pricing-price small { font-size: .95rem; font-weight: normal; letter-spacing: 0; color: var(--pub-muted); }
+.pricing-card ul { flex: 1; margin: 1.5rem 0; padding-left: 1.1rem; }
+.pricing-card li { padding-left: .15rem; }
+.pricing-card li + li { margin-top: .4rem; }
+.pricing-card li::marker { color: var(--pub-blue); }
+.pricing-action {
+  display: inline-grid;
+  place-items: center;
+  min-width: 44px;
+  min-height: 44px;
+  padding: .65rem 1rem;
+  border: 0;
+  border-radius: .25rem;
+  background: var(--pub-blue);
+  color: var(--pub-white);
+  font: inherit;
+  font-weight: 600;
+  text-align: center;
+  text-decoration: none;
+  cursor: pointer;
+}
+.pricing-action:hover { background: var(--pub-blue-deep); }
+.pricing-page :focus-visible { outline: 3px solid var(--pub-blue); outline-offset: 3px; }
+.pricing-session { color: var(--pub-muted); }
+.pricing-notice .pricing-action { margin-top: .75rem; }
+
+.pricing-section { margin-top: clamp(2.5rem, 6vw, 5rem); }
+.pricing-section h2 { margin-bottom: 1.5rem; font-size: clamp(1.8rem, 3vw, 2.5rem); }
+.pricing-table-wrap { overflow-x: auto; }
+.pricing-page table { table-layout: fixed; width: 100%; border-collapse: collapse; background: var(--pub-white); }
+.pricing-page th, .pricing-page td { overflow-wrap: anywhere; padding: .9rem 1rem; text-align: left; border-bottom: 1px solid var(--pub-rule); }
+.pricing-page thead { background: var(--pub-night); color: var(--pub-white); }
+.pricing-page tbody th { color: var(--pub-ink); }
+.pricing-mobile-limits { display: none; }
+.pricing-faq { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.6fr); gap: 2rem; }
+.pricing-faq details { border-top: 1px solid var(--pub-rule); }
+.pricing-faq details:last-child { border-bottom: 1px solid var(--pub-rule); }
+.pricing-faq summary { min-height: 44px; padding: 1rem .25rem; font-weight: 600; cursor: pointer; }
+.pricing-faq p { max-width: 70ch; padding: 0 .25rem 1rem; color: var(--pub-muted); }
+.pricing-faq a { display: inline-flex; align-items: center; min-height: 44px; color: var(--pub-blue); }
+
+@media (max-width: 767px) {
+  .pricing-cards, .pricing-faq { grid-template-columns: 1fr; }
+  .pricing-faq { gap: 0; }
+  .pricing-table-wrap { display: none; }
+  .pricing-mobile-limits { display: grid; gap: .8rem; }
+  .pricing-mobile-limits h3 { font-size: 1.3rem; margin-bottom: .75rem; }
+  .pricing-mobile-limits dl div { display: flex; justify-content: space-between; gap: 1rem; padding: .55rem 0; border-top: 1px solid var(--pub-rule); }
+  .pricing-mobile-limits dd { font-weight: 600; text-align: right; }
+}

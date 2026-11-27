@@ -40,7 +40,7 @@ describe('Login', () => {
 
     renderLogin();
 
-    await user.type(screen.getByPlaceholderText('you@example.com'), 'test@example.com');
+    await user.type(screen.getByPlaceholderText('Your email address'), 'test@example.com');
     await user.type(screen.getByPlaceholderText('••••••••'), 'password123');
     await user.click(screen.getByRole('button', { name: 'Sign In' }));
 
@@ -56,13 +56,18 @@ describe('Login', () => {
 
     renderLogin();
 
-    await user.type(screen.getByPlaceholderText('you@example.com'), 'test@example.com');
+    await user.type(screen.getByPlaceholderText('Your email address'), 'test@example.com');
     await user.type(screen.getByPlaceholderText('••••••••'), 'wrongpass');
     await user.click(screen.getByRole('button', { name: 'Sign In' }));
 
     expect(
       await screen.findByText('Login failed. Please check your credentials.')
     ).toBeInTheDocument();
+  });
+
+  it('sets the browser tab title', () => {
+    renderLogin();
+    expect(document.title).toBe('Sign in · Visdom');
   });
 });
 

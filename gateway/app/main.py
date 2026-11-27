@@ -1,3 +1,4 @@
+# Copyright 2017-present, The Visdom Authors
 """
 Main FastAPI entrypoint. Mounts routers and configures CORS.
 """
@@ -9,14 +10,15 @@ import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app import account_deletion, payments, retention, usage_rollup
+from app import account_deletion, invites, payments, retention, usage_rollup
 from app.admin import janitor, mount_admin
 from app.admin.activity import activity_per_instance
 from app.config import settings
 from app.database import SessionLocal
-from app.routers import api_keys, auth, billing, health, usage, visdom, workspaces
+from app.routers import api_keys, auth, billing, contact, health, usage, visdom, workspaces
 
 FIRST_TICK_SECONDS = 300
+INVITE_SWEEP_HOURS = 6
 
 
 async def _sample_usage_forever(seconds: int) -> None:
@@ -102,11 +104,43 @@ async def _revoke_due_keys_forever(hours: int) -> None:
             db.close()
 
 
+async def _expire_invites_forever(hours: int) -> None:
+    """Remove invites nobody answered, on its own tick so it runs even with
+    account deletion turned off."""
+    delay = FIRST_TICK_SECONDS
+    while True:
+        await asyncio.sleep(delay)
+        delay = hours * 3600
+        try:
+            expired = await asyncio.to_thread(invites.expire_once)
+            if expired:
+                logging.info("removed %d invite(s) nobody answered", expired)
+        except Exception:
+            logging.exception("invite expiry tick failed")
+
+
+async def _expire_contacts_forever() -> None:
+    delay = FIRST_TICK_SECONDS
+    while True:
+        await asyncio.sleep(delay)
+        delay = 3600
+        try:
+            await asyncio.to_thread(_expire_contacts)
+        except Exception:
+            logging.exception("contact expiry tick failed")
+
+
+def _expire_contacts() -> None:
+    with SessionLocal() as db:
+        contact.expire(db)
+
+
 @contextlib.asynccontextmanager
 async def lifespan(_app: FastAPI):
+    """Start the background ticks that are switched on, and cancel them on shutdown."""
     seconds = settings.USAGE_SAMPLE_SECONDS
     hours = settings.RETENTION_SWEEP_HOURS
-    tasks = []
+    tasks = [asyncio.create_task(_expire_contacts_forever())]
     gap = payments.setup_gap()
     if gap:
         logging.warning(gap)
@@ -118,6 +152,8 @@ async def lifespan(_app: FastAPI):
         tasks.append(asyncio.create_task(_delete_accounts_forever(settings.ACCOUNT_DELETION_HOURS)))
     if settings.KEY_REVOKE_HOURS > 0:
         tasks.append(asyncio.create_task(_revoke_due_keys_forever(settings.KEY_REVOKE_HOURS)))
+    if settings.INVITE_EXPIRY_DAYS > 0:
+        tasks.append(asyncio.create_task(_expire_invites_forever(INVITE_SWEEP_HOURS)))
     try:
         yield
     finally:
@@ -151,6 +187,7 @@ app.include_router(api_keys.router, prefix="/api/v1")
 app.include_router(health.router, prefix="/api/v1")
 app.include_router(workspaces.router, prefix="/api/v1")
 app.include_router(billing.router, prefix="/api/v1")
+app.include_router(contact.router, prefix="/api/v1")
 app.include_router(usage.router, prefix="/api/v1")
 app.include_router(visdom.router, prefix="/api/v1")
 

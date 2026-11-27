@@ -21,10 +21,10 @@ const PROXIED_PREFIX = '/vis/';
 
 const isSameOriginPath = (path) => /^\/(?![/\\])/.test(path);
 
-export const resolvePostAuthTarget = (location) => {
+export const resolvePostAuthTarget = (location, fallback = '/') => {
   const next = new URLSearchParams(location.search).get('next');
   if (next && isSameOriginPath(next)) return next;
-  return location.state?.from || '/';
+  return location.state?.from || fallback;
 };
 
 export const redirectAfterAuth = (target, navigate) => {

@@ -27,6 +27,10 @@ def test_list_plans(client):
         "storage_mb": None,
         "workspace_storage_mb": None,
     }
+    assert enterprise["features"] == [
+        "Unlimited workspaces", "Unlimited members", "Unlimited storage",
+        "Unlimited retention", "Dedicated support",
+    ]
     assert all(plan["features"] for plan in plans)
 
 

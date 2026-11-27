@@ -39,6 +39,7 @@ from app.models import (
     AdminUser,
     APIKey,
     APIKeyWorkspace,
+    ContactMessage,
     Membership,
     Plan,
     SharedLink,
@@ -558,6 +559,36 @@ def _workspace_standing(model, name):
     return "active" if model.is_active else "suspended"
 
 
+# Evictions are handed to the loop and not waited for: the save must not sit
+# there while a slow instance runs into its timeout. The tasks are kept in a set
+# because the loop only holds a weak reference to a running task, and one that
+# is collected before it runs would leave the sockets open.
+_evictions: set[asyncio.Task] = set()
+
+
+def _evict_in_background(slug: str, reason: str) -> None:
+    """Ask the instances to drop a workspace's sockets, without waiting for them.
+
+    Nothing is left waiting on the task, so a failure has no caller to raise
+    into: the done callback writes it down, or the only trace is the loop's own
+    "Task exception was never retrieved" line.
+    """
+    task = asyncio.create_task(asyncio.to_thread(activity.evict_workspace, slug, reason))
+    _evictions.add(task)
+
+    def _settle(finished: asyncio.Task) -> None:
+        _evictions.discard(finished)
+        if finished.cancelled():
+            return
+        failure = finished.exception()
+        if failure is not None:
+            logging.warning(
+                "could not evict the sockets of %s: %s", slug, failure, exc_info=failure
+            )
+
+    task.add_done_callback(_settle)
+
+
 class WorkspaceAdmin(ChangeableView, model=Workspace):
     name = "Workspace"
     name_plural = "Workspaces"
@@ -592,21 +623,6 @@ class WorkspaceAdmin(ChangeableView, model=Workspace):
     }
     form_columns = [Workspace.is_active, Workspace.trashed_at]
 
-    async def after_model_change(
-        self, data: dict, model, is_created: bool, request: Request
-    ) -> None:
-        """Close the workspace's open sockets once it is no longer usable.
-
-        After the change rather than during it, so a save that fails does not
-        disconnect anybody. The refusal at resolve time already stops anybody
-        new; without this a tab open at the moment of suspension keeps watching
-        and a training run keeps writing, because a live socket never resolves
-        again.
-        """
-        if model.trashed_at is not None:
-            activity.evict_workspace(model.slug, _TRASHED_REASON)
-        elif not model.is_active:
-            activity.evict_workspace(model.slug, _SUSPENDED_REASON)
     column_searchable_list = [Workspace.name, Workspace.slug]
     column_sortable_list = [Workspace.name, Workspace.slug, Workspace.created_at]
     column_default_sort = (Workspace.created_at, True)
@@ -659,6 +675,42 @@ class WorkspaceAdmin(ChangeableView, model=Workspace):
     async def get_object_for_details(self, request: Request):
         await activity.refresh_activity()
         return await super().get_object_for_details(request)
+
+    async def on_model_change(
+        self, data: dict, model, is_created: bool, request: Request
+    ) -> None:
+        """Note whether this is the save that suspends the workspace.
+
+        The row reads as inactive by the time ``after_model_change`` runs, so
+        the answer has to be taken here, while it still holds the old value.
+        """
+        await super().on_model_change(data, model, is_created, request)
+        request.state.workspace_was_active = model.is_active
+
+    async def after_model_change(
+        self, data: dict, model, is_created: bool, request: Request
+    ) -> None:
+        """Close the sockets a workspace had open when it is suspended.
+
+        Refusing a suspended workspace happens at resolve time, which leaves a
+        tab that already holds a socket free to keep writing through it. The
+        instances can close those sockets, and a suspension saved here is the
+        only place the gateway hears about one without waiting for the resolve
+        cache to expire. Best effort: the refusal is what withdraws the
+        workspace, so an instance that cannot be reached costs promptness
+        rather than correctness, and the save is not held open while the
+        instances are asked.
+        """
+        if is_created:
+            return
+        if model.trashed_at is not None:
+            _evict_in_background(model.slug, _TRASHED_REASON)
+            return
+        if not getattr(request.state, "workspace_was_active", False):
+            return
+        if model.is_active:
+            return
+        _evict_in_background(model.slug, _SUSPENDED_REASON)
 
 
 def _other_active_admins(db, membership):
@@ -797,6 +849,19 @@ class APIKeyAdmin(ChangeableView, model=APIKey):
     column_details_exclude_list = [APIKey.hashed_key]
     column_sortable_list = [APIKey.created_at, APIKey.last_used_at]
     form_columns = [APIKey.is_active]
+
+
+class ContactMessageAdmin(ChangeableView, model=ContactMessage):
+    name = "Contact message"
+    name_plural = "Contact messages"
+    icon = "fa-solid fa-inbox"
+    category = "Support"
+    column_list = [ContactMessage.created_at, ContactMessage.topic, ContactMessage.name,
+                   ContactMessage.email, ContactMessage.handled]
+    column_default_sort = (ContactMessage.created_at, True)
+    column_formatters = {ContactMessage.created_at: _to_the_minute("created_at")}
+    column_details_exclude_list = [ContactMessage.sender_key, ContactMessage.proxy_sender_key]
+    form_columns = [ContactMessage.handled]
 
 
 class WorkspaceInviteAdmin(RoleScopedView, model=WorkspaceInvite):
@@ -2250,6 +2315,7 @@ VIEWS = (
     WorkspaceAdmin,
     MembershipAdmin,
     APIKeyAdmin,
+    ContactMessageAdmin,
     WorkspaceInviteAdmin,
     SharedLinkAdmin,
     AdminUserAdmin,
