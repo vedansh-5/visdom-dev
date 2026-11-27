@@ -4,10 +4,19 @@ import { useNavigate, Link, useLocation } from 'react-router-dom';
 import { Check, RefreshCw, X } from 'lucide-react';
 import { useAuth, api } from '../context/AuthContext';
 import PasswordInput from '../components/PasswordInput';
+import { getPublicPlans } from '../utils/planCatalog';
 import { resolvePostAuthTarget, redirectAfterAuth } from '../utils/helpers';
 import usePageTitle from '../hooks/usePageTitle';
 
 const USERNAME_PATTERN = /^[A-Za-z0-9_-]{3,30}$/;
+
+async function registrationTarget(location) {
+  const from = resolvePostAuthTarget(location, null);
+  const planId = new URLSearchParams(location.search).get('plan');
+  if (from || !planId) return from || '/';
+  const plans = await getPublicPlans().catch(() => []);
+  return plans.find(plan => plan.id === planId)?.price > 0 ? '/?tab=billing' : '/';
+}
 
 const Register = () => {
   usePageTitle('Create account');
@@ -28,7 +37,6 @@ const Register = () => {
   const { register, login } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
-  const from = resolvePostAuthTarget(location);
 
   const fetchSuggestion = async (seed) => {
     setAutoUsernameLoading(true);
@@ -104,8 +112,9 @@ fetchSuggestion();
     try {
       await register(email, password, finalUsername);
       setSuccess('Account created! Logging you in...');
+      const target = registrationTarget(location);
       await login(email, password);
-      redirectAfterAuth(from, navigate);
+      redirectAfterAuth(await target, navigate);
     } catch (err) {  
       const detail = err.response?.data?.detail;
       let errorMsg = 'Registration failed. Please try again.';
@@ -329,6 +338,8 @@ fetchSuggestion();
 
         <div style={{ textAlign: 'center', marginTop: '16px', fontSize: '13px', color: 'var(--text-muted)' }}>
           <Link to={`/privacy${location.search}`} state={{ from: location.state?.from }} style={{ color: 'var(--text-muted)' }}>Privacy</Link>
+          {' · '}
+          <Link to={`/terms${location.search}`} state={{ from: location.state?.from }} style={{ color: 'var(--text-muted)' }}>Terms</Link>
           {' · '}
           <Link to={`/cookies${location.search}`} state={{ from: location.state?.from }} style={{ color: 'var(--text-muted)' }}>Cookies</Link>
         </div>

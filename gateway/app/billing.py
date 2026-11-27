@@ -92,10 +92,10 @@ DEFAULT_PLANS = [
         "retention_days": None,
         "features": [
             "Unlimited workspaces",
-            "SSO & audit logs",
+            "Unlimited members",
+            "Unlimited storage",
             "Unlimited retention",
             "Dedicated support",
-            "Custom SLAs",
         ],
     },
 ]

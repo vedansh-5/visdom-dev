@@ -2542,3 +2542,37 @@ def test_a_deleted_account_with_no_name_kept_does_not_show_its_id(admin_client):
     assert trail.status_code == 200
     assert "Deleted account (name not recorded) for good." in trail.text
     assert row_id not in trail.text
+
+
+@pytest.mark.parametrize("role", ["viewer", "support", "admin", "superadmin"])
+def test_contact_inbox_permissions_and_order(admin_client, role):
+    from datetime import timedelta
+
+    from app.models import ContactMessage
+
+    db = admin_client.staff_db
+    now = utcnow()
+    older = ContactMessage(name="Ana", email="ana@fossasia.org", topic="General", message="Hello", created_at=now)
+    newer = ContactMessage(name="Raj", email="raj@fossasia.org", topic="Billing", message="Question",
+                           created_at=now + timedelta(minutes=1), sender_key="private-key")
+    db.add_all([older, newer])
+    db.commit()
+    _sign_in_as(admin_client, role)
+    inbox = "/admin/contact-message"
+    listing = admin_client.get(f"{inbox}/list")
+    details = admin_client.get(f"{inbox}/details/{newer.id}")
+    update = f"{inbox}/edit/{newer.id}"
+    if role == "viewer":
+        saved = admin_client.post(update, data={"handled": "y"})
+        assert listing.status_code == details.status_code == saved.status_code == 403
+        return
+    assert listing.status_code == details.status_code == 200
+    assert listing.text.index("raj@fossasia.org") < listing.text.index("ana@fossasia.org")
+    assert "Question" in details.text and "private-key" not in details.text
+    assert admin_client.get(f"{inbox}/create").status_code == 403
+    assert admin_client.delete(f"{inbox}/delete?pks={newer.id}").status_code == 403
+    for form, expected in (({"handled": "y", "message": "replacement"}, True), ({}, False)):
+        assert admin_client.post(update, data=form, follow_redirects=False).status_code in (302, 303)
+        db.refresh(newer)
+        assert newer.handled is expected
+        assert newer.message == "Question"

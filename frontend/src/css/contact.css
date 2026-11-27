@@ -1,0 +1,117 @@
+/* Copyright 2017-present, The Visdom Authors */
+.contact-page {
+  flex: 1;
+  font-family: var(--pub-font);
+  background: var(--pub-paper);
+  color: var(--pub-ink);
+  padding: clamp(32px, 7vw, 104px) var(--site-gutter);
+}
+.contact-layout {
+  max-width: 1120px;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: minmax(0, 4fr) minmax(0, 6fr);
+  align-items: start;
+  grid-template-areas: "intro form" "guide form";
+  grid-template-rows: auto 1fr;
+  gap: 24px clamp(32px, 6vw, 90px);
+}
+.contact-intro { grid-area: intro; }
+.contact-intro h1 {
+  margin: 0;
+  font-size: clamp(38px, 5.6vw, 74px);
+  letter-spacing: -.055em;
+  line-height: 1.02;
+}
+.contact-intro p, .contact-panel p {
+  line-height: 1.6;
+  margin: 14px 0;
+}
+.contact-intro p { max-width: 34ch; font-size: clamp(16px, 1.5vw, 21px); }
+.contact-page a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  color: var(--pub-blue);
+  font-weight: 600;
+  text-underline-offset: .2em;
+}
+.contact-panel {
+  grid-area: form;
+  padding: clamp(20px, 3vw, 38px);
+  background: var(--pub-white);
+  border: 1px solid var(--pub-rule);
+  border-top: 4px solid var(--pub-teal);
+}
+.contact-panel fieldset { min-width: 0; margin: 0; padding: 0; border: 0; }
+.contact-panel legend, .contact-panel h2 {
+  margin: 0 0 18px;
+  padding: 0;
+  font-size: 23px;
+  letter-spacing: -.03em;
+  font-weight: 700;
+}
+.contact-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.contact-field {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  margin-bottom: 16px;
+}
+.contact-field label { font-size: 14px; font-weight: 650; }
+.contact-field :is(input, select, textarea) {
+  width: 100%;
+  min-height: 44px;
+  padding: 9px 11px;
+  border: 1px solid var(--pub-control-border);
+  border-radius: 3px;
+  background: var(--pub-white);
+  color: inherit;
+  font: inherit;
+  font-size: 16px;
+}
+.contact-guide {
+  grid-area: guide;
+  max-width: 48ch;
+  padding-top: 18px;
+  border-top: 1px solid var(--pub-control-border);
+}
+.contact-guide h2 { margin: 0; font-size: 1.125rem; }
+.contact-guide p { margin: .4rem 0 1.25rem; line-height: 1.55; color: var(--pub-muted); }
+.contact-guide p:last-child { margin-bottom: 0; }
+.contact-field textarea { resize: vertical; }
+.contact-field select { height: max(44px, 2.75em); }
+.contact-panel button {
+  min-height: 44px;
+  border: 0;
+  border-radius: 3px;
+  padding: 10px 20px;
+  background: var(--pub-blue);
+  color: var(--pub-white);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.contact-panel button:hover { background: var(--pub-blue-deep); }
+.contact-panel button:disabled { cursor: wait; }
+.contact-page :focus-visible { outline: 3px solid var(--pub-blue); outline-offset: 3px; }
+.contact-field [aria-invalid="true"] {
+  border-color: var(--pub-red);
+  background: var(--pub-red-tint);
+}
+.contact-error {
+  width: fit-content;
+  border-inline-start: 2px solid var(--pub-red);
+  padding-inline: 8px;
+  background: var(--pub-red-tint);
+  color: var(--pub-red);
+  font-size: 14px;
+}
+.contact-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+@media (max-width: 767px) {
+  .contact-layout { grid-template-columns: minmax(0, 1fr); grid-template-areas: "intro" "form" "guide"; grid-template-rows: auto; gap: 20px; max-width: 580px; }
+  .contact-intro p { margin-bottom: 0; }
+}
+@media (max-width: 479px) {
+  .contact-pair { grid-template-columns: minmax(0, 1fr); gap: 0; }
+}

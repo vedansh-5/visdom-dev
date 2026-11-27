@@ -12,13 +12,14 @@ const LegalPage = ({ title, sections }) => {
     <main className="gc-legal-wrapper">
       <article className="gc-legal">
         <h1 className="gc-legal-title">{title}</h1>
-        <p className="gc-legal-updated">Last updated {UPDATED}</p>
+        <p className="gc-legal-updated">Last updated {UPDATED[title]}</p>
         {sections.map((section) => (
           <section key={section.heading}>
             <h2 className="gc-legal-heading">{section.heading}</h2>
             {section.body.map((line) => (
               <p key={line.slice(0, 40)} className="gc-legal-text">{line}</p>
             ))}
+            {section.contact && <p className="gc-legal-text"><Link to="/contact">Contact us</Link></p>}
           </section>
         ))}
         <p className="gc-legal-text">
